@@ -1,7 +1,10 @@
 import os
 """
--- the fileParts() function reads a string of a file's name and returns a tuple with the 
--- first element as the file name and the second element as the extension
+-- The fileParts() function reads a string of a file's name and returns a tuple containing 
+-- the file name and its extension.
+-- It uses the os.path.splitext() method to split the file name into two parts:
+-- the file name without the extension and the extension itself.
+-- If the file name is empty or an error occurs, it returns None for both parts.
 """
 global fileExtension, fileName
 
@@ -15,9 +18,9 @@ def fileParts(file):
         print(f"Error: {e}")
         return None, None
 
-test = "example.csv"
+file = "example.csv"
 
-fileName, fileExtension = fileParts(test)
+fileName, fileExtension = fileParts(file)
 
 
 #TODO - Add logic to handle different file types:
