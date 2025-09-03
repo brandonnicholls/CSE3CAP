@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import filedialog
 
 class UI:
     def __init__(self, root):
@@ -42,27 +43,42 @@ class UI:
             elif btn == "Configuration":
                 button.config(command=self.configuration_screen)
 
-    # Content Frame
+        # Content Frame
         self.content_frame = tk.Frame(root, bg="#1e1e1e")
         self.content_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         self.content_frame.pack_propagate(False)
 
+        self.upload_screen()  # Default screen
 
     def clear_content(self):
         # Clear all widgets in the content frame
         for widget in self.content_frame.winfo_children():
             widget.destroy()
 
+    def open_file(self):
+        file_path = filedialog.askopenfilename(
+            title="Select a ruleset file",
+            filetypes=[("Excel/CSV files", "*.xlsx *.csv")]
+        )
+        if file_path:
+            ingest_file = file_path
+            # Handle the selected file (e.g., process it)
+    
 
     def upload_screen(self):
         # Navigate to file selection frame and clear the content frame
         self.clear_content()
         file_frame = tk.Frame(self.content_frame, bg="#1e1e1e")
-        file_frame.pack(fill=tk.BOTH, expand=True)
-        file_label = tk.Label(file_frame, text="Select a file to upload", font=("Helvetica", 18), bg="#1e1e1e", fg="#cbcbcb")
-        file_label.pack(pady=20)
-        upload_button = tk.Button(file_frame, text="Browse", font=("Helvetica", 14), bg="#ff8800", fg="#1e1e1e", bd=0, relief=tk.FLAT)
+        file_frame.pack(fill=tk.BOTH, expand=True, pady=350)
+        file_label = tk.Label(file_frame, text="Select a file to upload", font=("Helvetica", 18), bg="#1e1e1e", fg="#cbcbcb", pady=20)
+        file_label.pack()
+        upload_button = tk.Button(file_frame, text="Choose File", font=("Helvetica", 14), bg="#ff8800", fg="#1e1e1e", bd=0, relief=tk.FLAT)
         upload_button.pack(pady=10)
+        upload_button.config(command=self.open_file)
+        vendor_label = tk.Label(file_frame, text="Supported firewall vendors: Fortinet, Sophos, Barracuda, Checkpoint, Watchguard", font=("Helvetica", 12), bg="#1e1e1e", fg="#cbcbcb", pady=10)
+        vendor_label.pack()
+        file_type_label = tk.Label(file_frame, text="Supported file types: XLSX & CSV", font=("Helvetica", 12), bg="#1e1e1e", fg="#cbcbcb", pady=10)
+        file_type_label.pack()
 
 
     def dashboard_screen(self):
