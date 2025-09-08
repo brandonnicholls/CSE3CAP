@@ -1,0 +1,301 @@
+﻿# firefind/one.py
+# Parser-only CLI: CSV/XLSX -> flat CSV + optional v0.1 JSONL
+from __future__ import annotations
+
+"""
+quick context (for future me + marker):
+this script is the small "parser-only" tool. it reads one firewall export
+(csv or xlsx), tries to figure out the header row, extracts rule-ish columns,
+and writes:
+  1) a flat CSV (same fields as we parsed), and
+  2) optionally a v0.1 normalized JSONL (for the rest of FireFind).
+kept it simple on purpose: mild heuristics, some defaults (e.g., severity=info),
+and a helper to auto-try sheets/scan/skip combos if the header is messy.
+"""
+
+import argparse, csv, json, sys, re
+from pathlib import Path
+from typing import Optional, Dict, Any, List, Iterable, Tuple
+
+import pandas as pd
+from .v01 import to_v01
+
+# -------------------------- small utils --------------------------
+
+def _lc(s: str | None) -> str:
+    # lowercase/trim helper (used a couple of times)
+    return (s or "").strip().lower()
+
+def json_dumps(o: Any) -> str:
+    # compact json (readable in git diffs; no weird escapes)
+    return json.dumps(o, ensure_ascii=False, separators=(",", ":"))
+
+def write_flat_csv(rows: List[dict], path: Path) -> None:
+    # write the "flat" rules so folks can open in excel without drama
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cols = ["vendor","rule_id","src","dst","service","action","reason","severity"]
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        for r in rows:
+            # fill missing fields with empty strings; severity defaults to "info"
+            out = {k: r.get(k, "") for k in cols}
+            if not out.get("severity"):
+                out["severity"] = "info"
+            w.writerow(out)
+
+def load_svc_map(path: Optional[str]) -> Optional[Dict[str, Any]]:
+    # optional: user can pass a JSON map for vendor service names -> proto/ports
+    if not path: return None
+    p = Path(path)
+    if not p.is_file():
+        print(f"Warning: --svc-map not found: {p}", file=sys.stderr)
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception as e:
+        print(f"Warning: bad --svc-map JSON: {e}", file=sys.stderr)
+        return None
+
+# -------------------------- header detection --------------------------
+
+def _nk(s: str) -> str:
+    # "normalize key": keep a-z0-9 only, so "Destination/s" -> "destinations"
+    return re.sub(r"[^a-z0-9]+", "", str(s or "").strip().lower())
+
+# candidates we look for across messy headers
+CANDIDATES = {
+    "rule_id": {"rule","ruleid","id","no","number","name"},
+    "src": {"source","sources"},
+    "dst": {"destination","destinations","destination/s"},
+    "service": {"service","services","servicesapplications","services&applications"},
+    "action": {"action","actions"},
+    "reason": {"comment","comments","remark","remarks","reason","notes","description"},
+    "severity": {"severity","risk","priority"},
+}
+
+def _score_header_row(row_vals: List[str]) -> Tuple[int, Dict[str,int]]:
+    # count how many target fields appear in this row; return hit count + indexes
+    hits = 0; idxs: Dict[str,int] = {}
+    for i, v in enumerate(row_vals):
+        k = _nk(v)
+        for field, keys in CANDIDATES.items():
+            if field in idxs: continue
+            if k in keys:
+                idxs[field] = i; hits += 1
+    return hits, idxs
+
+def _find_header(df: pd.DataFrame, scan_rows: int) -> Tuple[int, Dict[str,int]]:
+    # look at the first N rows to guess the header row
+    best_hits, best_idxs, best_row = -1, {}, -1
+    scan = min(len(df), max(1, scan_rows))
+    for r in range(scan):
+        row_vals = [str(x) for x in df.iloc[r].tolist()]
+        hits, idxs = _score_header_row(row_vals)
+        # we only accept rows that at least have the core columns
+        if hits > best_hits and {"src","dst","service","action"}.issubset(idxs):
+            best_hits, best_idxs, best_row = hits, idxs, r
+    return best_row, best_idxs
+
+# -------------------------- parser (CSV + XLSX) --------------------------
+
+def list_sheets(path: str) -> List[str]:
+    # if it's an excel file, list its sheet names (useful for --list-sheets)
+    p = Path(path)
+    if p.suffix.lower() not in {".xlsx",".xls"}:
+        return []
+    try:
+        xf = pd.ExcelFile(str(p))
+        return list(xf.sheet_names)
+    except Exception:
+        # could be a weird/corrupted file; just return empty
+        return []
+
+def _load_df(path: Path, sheet: Optional[str], header_scan_rows: int, skip_rows: int) -> Optional[pd.DataFrame]:
+    # load raw file, optionally pick a sheet; then figure out header row
+    suffix = path.suffix.lower()
+    if suffix in {".xlsx",".xls"}:
+        df0 = pd.read_excel(str(path), sheet_name=sheet, header=None, dtype=str, na_filter=False)
+    else:
+        df0 = pd.read_csv(str(path), header=None, dtype=str, na_filter=False, encoding="utf-8", on_bad_lines="skip")
+    # some exports have banner junk on top; let user skip a few rows
+    if skip_rows > 0:
+        df0 = df0.iloc[skip_rows:].reset_index(drop=True)
+    header_row, _ = _find_header(df0, header_scan_rows)
+    if header_row < 0:
+        # we give up here; caller will handle "no rules"
+        return None
+    hdr = header_row + (skip_rows or 0)
+    # re-read with the detected header row so pandas assigns proper column names
+    if suffix in {".xlsx",".xls"}:
+        return pd.read_excel(str(path), sheet_name=sheet, header=hdr, dtype=str, na_filter=False)
+    return pd.read_csv(str(path), header=hdr, dtype=str, na_filter=False, encoding="utf-8", on_bad_lines="skip")
+
+def parse(path: str, *, sheet: Optional[str] = None, header_scan_rows: int = 15, skip_rows: int = 0) -> Iterable[Dict]:
+    # main generator: yields flat rule dicts
+    p = Path(path)
+    df = _load_df(p, sheet, header_scan_rows, skip_rows)
+    if df is None:
+        return
+    # build a normalized->original column name map (so we can fetch values safely)
+    cols_norm = {_nk(c): c for c in df.columns}
+    def col(name_set: set[str]) -> Optional[str]:
+        for nk, orig in cols_norm.items():
+            if nk in name_set:
+                return orig
+        return None
+    c_rule = col(CANDIDATES["rule_id"])
+    c_src  = col(CANDIDATES["src"])
+    c_dst  = col(CANDIDATES["dst"])
+    c_svc  = col(CANDIDATES["service"])
+    c_act  = col(CANDIDATES["action"])
+    c_rsn  = col(CANDIDATES["reason"])
+    c_sev  = col(CANDIDATES["severity"])
+
+    # mild vendor guess: some Check Point exports have "Firewall Policy" sheet
+    vendor_guess = "checkpoint" if (isinstance(sheet, str) and "firewall policy" in sheet.lower()) else "unknown"
+
+    # iterate rows and skip obvious banners or empty lines
+    for _, row in df.iterrows():
+        def val(cn: Optional[str]) -> str:
+            # helper to read + trim a cell safely
+            return ("" if cn is None else str(row.get(cn, "")).strip())
+
+        v_rule = val(c_rule)
+        v_src  = val(c_src)
+        v_dst  = val(c_dst)
+        v_svc  = val(c_svc)
+        v_act  = val(c_act)
+        v_rsn  = val(c_rsn)
+        v_sev  = val(c_sev) or "info"
+
+        # --- Skip non-rule/banner lines ---
+        if not any([v_rule, v_src, v_dst, v_svc, v_act]):
+            continue
+        if v_src.lower() == "normalized interface" and v_dst.lower() == "normalized interface":
+            continue
+        if v_svc.lower() == "name" and not v_act:
+            continue
+
+        # if it looks like a rule, yield a flat dict
+        yield {
+            "vendor":   vendor_guess,
+            "rule_id":  v_rule,
+            "src":      v_src,
+            "dst":      v_dst,
+            "service":  v_svc,
+            "action":   v_act,
+            "reason":   v_rsn,
+            "severity": v_sev,
+        }
+
+# -------------------------- CLI plumbing --------------------------
+
+def try_parse(in_file: Path, sheet: Optional[str], header_scan: int, skip_rows: int) -> List[dict]:
+    # try the given params; if user’s pandas is older/newer and types clash, fallback
+    try:
+        return list(parse(str(in_file), sheet=sheet, header_scan_rows=header_scan, skip_rows=skip_rows))
+    except TypeError:
+        # some pandas versions can be picky; retry with defaults
+        return list(parse(str(in_file)))
+
+def auto_find_best(in_file: Path) -> Dict[str, Any]:
+    # brute-force a few reasonable combos to see which yields the most rows
+    sheets = list_sheets(str(in_file)) if in_file.suffix.lower() in {".xlsx",".xls"} else [None]
+    header_scans = [10, 15, 20, 25, 30]
+    skips = [0, 1, 2, 3, 4, 5]
+    best = {"count": -1, "sheet": None, "scan": None, "skip": None, "rules": []}
+    for s in sheets:
+        for scan in header_scans:
+            for sk in skips:
+                rules = try_parse(in_file, s, scan, sk)
+                cnt = len(rules)
+                if cnt > best["count"]:
+                    best = {"count": cnt, "sheet": s, "scan": scan, "skip": sk, "rules": rules}
+    return best
+
+def dump_sheet(in_file: Path, sheet: str, out_dir: Path, rows: int = 50):
+    # quick peek tool: dump the first N raw rows for a given sheet (no parsing)
+    raw = pd.read_excel(str(in_file), sheet_name=sheet, header=None, dtype=str).fillna("")
+    out = out_dir / f"{in_file.stem}.{sheet}.debug.csv"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    raw.iloc[:rows].to_csv(out, index=False, header=False, encoding="utf-8")
+    print(f"Dumped raw preview: {out.resolve()}")
+
+def main() -> int:
+    # basic CLI wiring; flags are kept small so it’s not overwhelming
+    ap = argparse.ArgumentParser(description="FireFind (parser-only)")
+    ap.add_argument("input", help="Path to ONE CSV/XLSX firewall export")
+    ap.add_argument("-o","--out", default="results", help="Output folder")
+    ap.add_argument("--preview", type=int, default=5, help="Print first N parsed rules")
+    ap.add_argument("--list-sheets", action="store_true", help="List worksheet names and exit")
+    ap.add_argument("--sheet", default=None, help="Worksheet name to parse")
+    ap.add_argument("--header-scan", type=int, default=15, help="Rows to scan to detect header row")
+    ap.add_argument("--skip-rows", type=int, default=0, help="Rows to skip before header detection")
+    ap.add_argument("--auto", action="store_true", help="Try sheets/combos and pick the best")
+    ap.add_argument("--dump-sheet", default=None, help="Dump raw first 50 rows of the given sheet to CSV")
+    ap.add_argument("--json-v01", action="store_true", help="Also write normalized v0.1 JSONL")
+    ap.add_argument("--svc-map", default=None, help="JSON mapping of service object names -> services")
+    args = ap.parse_args()
+
+    in_file = Path(args.input)
+    if not in_file.is_file():
+        print(f"Error: input path is not a file: {in_file}", file=sys.stderr); return 2
+
+    out_dir = Path(args.out); out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Only list / dump helpers
+    if args.list_sheets and in_file.suffix.lower() in {".xlsx",".xls"}:
+        for s in list_sheets(str(in_file)): print(s)
+        return 0
+    if args.dump_sheet:
+        dump_sheet(in_file, args.dump_sheet, out_dir); return 0
+
+    # Parse (either auto-pick best combo or use the exact args)
+    if args.auto and in_file.suffix.lower() in {".xlsx",".xls"}:
+        best = auto_find_best(in_file)
+        print(f"AUTO chose -> sheet={best['sheet']!r} header_scan={best['scan']} skip_rows={best['skip']}  count={best['count']}")
+        rules = best["rules"]
+        chosen_sheet = best["sheet"]
+    else:
+        rules = try_parse(in_file, args.sheet, args.header_scan, args.skip_rows)
+        print(f"Chosen -> sheet={args.sheet!r} header_scan={args.header_scan} skip_rows={args.skip_rows}")
+        chosen_sheet = args.sheet
+
+    print(f"Parsed rules from {in_file.name}: {len(rules)}")
+    if args.preview and rules:
+        # light summary so users can sanity-check quickly in the terminal
+        print(f"Preview (first {min(args.preview, len(rules))} rules):")
+        for i, r in enumerate(rules[:args.preview], 1):
+            d = dict(r)
+            print(f"  {i}. rule_id={d.get('rule_id')} src={d.get('src')} dst={d.get('dst')} service={d.get('service')} action={d.get('action')}")
+
+    if not rules:
+        # if nothing parsed, drop a small hint file with suggested next steps
+        (out_dir / f"{in_file.stem}.NO_RULES.txt").write_text(
+            "0 rules. Try:\n  --list-sheets\n  --auto\n  --sheet <name> --skip-rows N --header-scan M\n  --dump-sheet <name>\n",
+            encoding="utf-8")
+        print(f"0 rules parsed. Wrote hint: {out_dir / (in_file.stem + '.NO_RULES.txt')}")
+        return 3
+
+    # Optional normalized JSONL v0.1 (feeds the rest of FireFind)
+    if args.json_v01:
+        v01_path = out_dir / f"{in_file.stem}.rules.v01.jsonl"
+        vendor_hint = None
+        if isinstance(chosen_sheet, str) and "firewall policy" in chosen_sheet.lower():
+            vendor_hint = "checkpoint"
+        svc_map = load_svc_map(args.svc_map)
+        with v01_path.open("w", encoding="utf-8") as f:
+            for r in rules:
+                f.write(json_dumps(to_v01(r, vendor_hint, svc_map)) + "\n")
+        print(f"✓ Wrote: {v01_path.resolve()}")
+
+    # Flat CSV (simple view; risk engine is not involved here)
+    out_csv = out_dir / f"{in_file.stem}.findings.csv"
+    write_flat_csv(rules, out_csv)
+    print(f"✓ Wrote: {out_csv.resolve()}")
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
