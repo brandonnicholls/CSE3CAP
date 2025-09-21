@@ -1,0 +1,56 @@
+Policy ID,Policy Name,Action,Source Address,Destination Address,Service | Name,Comments
+1001,Allow SSH from Admin,Accept,10.0.10.0/24,10.0.20.10,ssh,Admin team SSH to bastion
+1002,Block Telnet from Internet,Drop,0.0.0.0/0,10.0.20.10,tcp/23,Legacy telnet blocked
+1003,Web to App,Accept,192.168.1.0/24,172.16.0.10,http,Frontend to app over HTTP
+1004,Secure Web to App,Accept,192.168.1.0/24,172.16.0.10,https,Frontend to app over HTTPS
+1005,Expose RDP (bad),Accept,0.0.0.0/0,10.0.30.30,tcp/3389,RDP exposed for test
+1006,ICMP from Internet,Accept,0.0.0.0/0,10.0.40.40,icmp,Ping allowed publicly
+1007,Any-Any EastWest,Accept,10.0.0.0/8,10.0.0.0/8,any,Overly permissive internal
+1008,DB Access,Accept,10.1.1.100,10.2.2.200,tcp/3306,App to MySQL
+1009,SQL Admin,Accept,10.1.1.0/24,10.2.2.0/24,tcp/1433,SQL between subnets
+1010,SMTP Out,Deny,10.10.10.50,0.0.0.0/0,tcp/25,Block direct SMTP
+1011,Alt HTTP Exposed,Accept,0.0.0.0/0,192.0.2.20,tcp/8080,Alternate HTTP port
+1012,Partner SSH Allow,Accept,203.0.113.0/24,10.1.1.50,ssh,Partner range SSH
+1013,Proxy Access,Accept,10.90.0.0/16,10.100.0.10,tcp/3128,Internal proxy
+1014,DHCP Relay,Accept,10.90.1.0/24,10.100.1.10,udp/67-68,DHCP helper
+1015,Internal Admin SSH,Accept,10.90.2.2,10.100.2.2,ssh,Admin jump
+1016,SSH Exposed (bad),Accept,0.0.0.0/0,10.100.3.3,ssh,Public SSH
+1017,Any-Any Egress,Accept,10.90.4.4,0.0.0.0/0,any,Broad egress
+1018,DNS over TLS,Accept,10.90.5.0/24,10.100.5.5,tcp/853,Secure DNS
+1019,Custom App Exposed,Accept,10.90.6.6,203.0.113.150,tcp/5000,Vendor callback
+1020,VNC Internal,Accept,10.90.7.0/24,10.100.7.7,vnc,Internal VNC
+1021,Catch-all Deny,Deny,10.90.8.8,10.100.8.8,any,Default deny
+1022,SMB Lateral,Accept,10.0.1.10,10.0.2.20,tcp/445,Lateral movement risk
+1023,Point-to-Point Admin,Accept,10.2.3.4,10.2.3.5,ssh,Direct admin
+1024,TFTP Allowed,Accept,10.3.4.0/24,10.4.5.0/24,udp/69,Legacy protocol
+1025,VNC Alt Port,Accept,10.5.6.7,10.6.7.8,tcp/5901,Alt VNC
+1026,Inter-VLAN Any,Accept,10.7.8.0/24,10.8.9.0/24,any,Broad inter-VLAN
+1027,Alt Mgmt Exposed,Accept,0.0.0.0/0,10.9.10.10,tcp/8081,Unnecessary exposure
+1028,NetBIOS Allowed,Accept,10.11.12.0/24,10.13.14.0/24,udp/137-139,Legacy file sharing
+1029,Vendor SSH Out,Accept,10.15.16.17,203.0.113.200,ssh,Support tunnel
+1030,Proxy Inter-VLAN,Accept,10.17.18.0/24,10.19.20.0/24,tcp/3128,Proxy between VLANs
+1031,IPsec IKE,Accept,10.21.22.23,10.23.24.25,tcp/500,IPsec to peer
+1032,NTP to DC,Accept,10.50.1.0/24,10.60.0.10,udp/123,Time sync
+1033,Block Lateral Any,Deny,10.50.2.0/24,10.60.0.0/16,any,Prevent broad lateral move
+1034,SMTP Submission,Accept,10.50.3.3,198.51.100.50,tcp/587,Mail relay
+1035,Elasticsearch,Accept,10.50.4.0/24,10.60.10.10,tcp/9200,Risky ES open
+1036,Kibana,Accept,10.50.4.0/24,10.60.20.20,tcp/5601,Risky Kibana open
+1037,Exposed Mgmt Alt,Accept,10.0.0.0/8,203.0.113.200,tcp/8443,External mgmt
+1038,Default Egress Deny,Deny,10.50.5.5,0.0.0.0/0,any,Egress control
+1039,Oracle DB,Accept,10.50.6.0/24,10.60.30.30,tcp/1521,Oracle connections
+1040,RDP Internet,Accept,0.0.0.0/0,198.18.0.10,tcp/3389,Public RDP
+1041,DNS over TCP,Accept,10.70.0.0/16,10.80.0.0/16,tcp/53,Internal DNS TCP
+1042,Syslog to SIEM,Accept,10.70.10.10,10.80.10.20,udp/514,Log shipping
+1043,HTTPS Egress,Accept,10.70.0.0/16,0.0.0.0/0,https,Open HTTPS out
+1044,HTTP Egress,Accept,10.70.0.0/16,0.0.0.0/0,http,Open HTTP out
+1045,POP3 Legacy,Accept,10.70.20.20,203.0.113.77,tcp/110,Old mail protocol
+1046,POP3S,Accept,10.70.30.30,203.0.113.88,tcp/995,Secure old mail
+1047,Block ICMP Between Segments,Drop,10.70.40.0/24,10.80.40.0/24,icmp,No ping across segments
+1048,NFS Between Servers,Accept,10.70.50.50,10.80.50.60,tcp/2049,NFS risky
+1049,Telnet Exposed,Accept,0.0.0.0/0,198.18.0.20,tcp/23,Public telnet (very bad)
+1050,IPv6 SSH Test,Accept,fe80::/64,2001:db8::10,ssh,IPv6 admin
+1051,Multi-Source Admin,Accept,"10.1.1.0/24,10.1.2.0/24","10.2.2.10",ssh,Two admin nets
+1052,Multi-Services,Accept,10.3.3.3,10.4.4.4,"ssh,http,https",Bundle services
+1053,Service Group Unknown,Accept,10.5.5.5,10.6.6.6,APP-GRP-WEB,Unknown service group
+1054,Any Source to DMZ,Accept,any,10.0.50.10,https,Simplified any keyword
+1055,Mgmt to Core,Accept,10.10.10.0/24,10.20.20.0/24,tcp/22,Restricted SSH
