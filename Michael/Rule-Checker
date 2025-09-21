@@ -1,3 +1,14 @@
+ruleset = [
+    {"id": "R1", "action": "ALLOW", "protocol": "TCP", "src_ip": "192.168.1.1", "src_port": 80,
+     "dst_ip": "10.0.0.10", "dst_port": 443, "risk": "Low", "description": "Web access"},
+    {"id": "R2", "action": "ALLOW", "protocol": "TCP", "src_ip": "0.0.0.0/0", "src_port": "ANY",
+     "dst_ip": "192.168.1.100", "dst_port": 22, "risk": "High", "description": "SSH exposed"},
+    {"id": "R3", "action": "DENY", "protocol": "UDP", "src_ip": "10.0.0.1", "src_port": 53,
+     "dst_ip": "8.8.8.8", "dst_port": 53, "risk": "Medium", "description": "DNS blocked"},
+    {"id": "R4", "action": "ALLOW", "protocol": "TCP", "src_ip": "ANY", "src_port": "ANY",
+     "dst_ip": "172.16.0.10", "dst_port": 3389, "risk": "Critical", "description": "RDP open"},
+]
+
 def find_high_risk_rules(rules, config):
     high_risk = []
     patterns = config.get("risk_patterns", [])
