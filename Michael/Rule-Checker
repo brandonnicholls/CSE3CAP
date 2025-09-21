@@ -1,0 +1,41 @@
+def find_high_risk_rules(rules, config):
+    high_risk = []
+    patterns = config.get("risk_patterns", [])
+    ADMIN_PORTS = [22, 3389, 5900]  # SSH, RDP, VNC
+    
+        # Check for open admin ports, any allow rule, and dangerous ports
+    if (rule.get("action") == "ALLOW" and
+            (str(rule.get("src_ip")).lower() in ("any", "0.0.0.0/0")) and
+            int(rule.get("dst_port")) in ADMIN_PORTS):
+            str(rule.get("src_port", "dst_port")).lower() == "any"
+            flagged = rule.copy()
+            flagged["risk"] = "Critical"
+            flagged["description"] += " (Open administrative port exposed)"
+            flagged["description"] += " (Allow-any rule detected)"
+            high_risk.append(flagged)
+    
+    for rule in rules:
+        # Direct severity check
+        if rule.get("risk") in config.get("severity_levels", []):
+            if rule["risk"] in ("High", "Critical"):
+                high_risk.append(rule)
+
+        # Pattern matching
+        for pattern in patterns:
+            conds = pattern["conditions"]
+            matched = True
+            for key, allowed_values in conds.items():
+                value = str(rule.get(key, "")).upper()
+                allowed_values = [str(v).upper() for v in allowed_values]
+                if value not in allowed_values:
+                    matched = False
+                    break
+
+            if matched:
+                flagged = rule.copy()
+                flagged["risk"] = pattern["severity"]
+                flagged["description"] += pattern.get("description_suffix", "")
+                high_risk.append(flagged)
+                break  # stop at first matching pattern
+
+    return high_risk
