@@ -1,0 +1,513 @@
+﻿        ADOM: DC_Fortigate_Inside-FW01        Policy Package: DC-FortiGate_INSIDE-FW01        Export by: ZZZ_LDAPS_SuperAdmin        e: 2025-06-12 15:43:13        Total Policy: 32,,,,,,,,,,,,,,,,
+Seq #,ID,Name,Action,Source,,Destination,,Schedule,,Service,,Serity Profiles,Log,NAT,Created e,Last Modified e
+,,,,Normalized Interface,Address,Normalized Interface,Address,Name,Value,Name,Value,,,,,
+,,,,,User,,,,,,,,,,,
+,,,,,Device,,,,,,,,,,,
+Stealth and explicit deny rules - self traffic rejection policy (3/10 Total:5),,,,,,,,,,,,,,,,
+6,1888,sdn_rule,Accept,CLIENT1DEV_79,Defender_source,IN-PROD-VL0,"sdn_AzureActiveDirectoryDomain
+sdn_AzureArcInfrastructure
+sdn_AzureTrafficManager
+sdn_MicrosoftDefenderForEndpoint
+sdn_OneDsCollector
+sdn_Storage
+sdn_AzureActiveDirectory",always,Start:00:00-End:00:00 SMTWTFS,HTTPS,TCP/443,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:03 AEDT,2025-05-06 10:20:59 AEST
+7,1889,sdn_rule3,Accept,CLIENT1DEV_79,Defender_source,IN-PROD-VL0,"Microsoft-Microsoft.Update
+Microsoft-Azure.Monitor
+DigiCert-OCSP
+Microsoft-Azure.Arc.Infrastructure
+Microsoft-Azure.Microsoft.Defender
+Microsoft-Azure.ATP",always,Start:00:00-End:00:00 SMTWTFS,,,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:03 AEDT,2025-05-06 10:20:42 AEST
+8,1890,sdn_rule2,Accept,CLIENT1DEV_79,Defender_source,IN-PROD-VL0,"AzureArcPlatformFQDN
+AzureDefenderFQDN_https
+AzureDefenderFQDN_https_2
+AzureDefenderFQDN_https_3",always,Start:00:00-End:00:00 SMTWTFS,HTTPS,TCP/443,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:04 AEDT,2025-05-06 10:20:28 AEST
+9,1891,sdn_rule4,Accept,CLIENT1DEV_79,Defender_source,IN-PROD-VL0,AzureDefenderFQDN_http,always,Start:00:00-End:00:00 SMTWTFS,HTTP,TCP/80,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:04 AEDT,2025-05-06 10:20:14 AEST
+10,1914,,Accept,CLIENT1DEV_79,n-10.16.0.0,Inter-FWL-VLAN4,h-10.254.150.56,always,Start:00:00-End:00:00 SMTWTFS,"shell
+SYSLOG","TCP/514
+UDP/514",default (ewall profile-protocol-options),Log All Sessions,N,2025-03-14 15:18:25 AEDT,2025-03-14 15:18:25 AEDT
+General THIRDPARTY1 Services (13/44 Total:1),,,,,,,,,,,,,,,,
+24,10010,,Accept,CLIENT1DEV_79,"SYSTEM1_HOSTS
+TEST_10.16.10.130
+","Inter-FWL-VLAN4
+PROD-DEV1",THIRDPARTY1_Domain_Controllers,always,Start:00:00-End:00:00 SMTWTFS,"Ldap
+TCP_3268
+TCP_464
+UDP_464
+dns_
+kerberos_
+ldap
+ntp","UDP/389
+TCP/3268
+TCP/464
+UDP/464
+Group Member (3): domain-tcp, domain-udp_, domain-udp
+Group Member (4): Kerberos_v5_TCP, Kerberos_v5_UDP, kerberos-tcp-v4, kerberos-udp-v4_
+TCP/389
+Group Member (2): ntp-tcp, ntp-udp",default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:04 AEDT,2025-03-14 15:18:25 AEDT
+Main Rulebase (74/517 Total:11),,,,,,,,,,,,,,,,
+143,10092,,Accept,CLIENT1DEV_79,"
+_Clients","WAN_21
+Inter-FWL-VLAN4
+PROD-DEV1",_Servers,always,Start:00:00-End:00:00 SMTWTFS,"PIX_8490-tcp
+smtp","TCP/8490
+TCP/25",default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:06 AEDT,2025-03-14 15:18:26 AEDT
+145,10094,,Accept,CLIENT1DEV_79,"SYSTEM1_HOSTS
+SYSTEM5LPARs
+THIRDPARTY1_SERVER1","Inter-FWL-VLAN4
+PROD-DEV1","FSM1-FLX1-BEL_10.18.1.85
+FSM1-FLX1-DCP_10.18.0.85
+NIM1-THIRDPARTY1-DCP_186.217.20.234
+P5HMC_186.217.20.235
+P6HMC3_186.217.30.103
+P6HMC_186.217.30.56
+P7HMC4-THIRDPARTY1-DCP_186.217.30.121",always,Start:00:00-End:00:00 SMTWTFS,ALL,IP/0,"Global_IDPS (ips sensor)
+default (ewall profile-protocol-options)",Log All Sessions,N,2025-01-20 11:33:06 AEDT,2025-03-14 15:18:27 AEDT
+146,10095,,Accept,CLIENT1DEV_79,THIRDPARTY1-SystemDirectorHosts,"Inter-FWL-VLAN4
+PROD-DEV1",SYS1-THIRDPARTY1-DCP_186.217.20.204,always,Start:00:00-End:00:00 SMTWTFS,ALL,IP/0,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:06 AEDT,2025-03-14 15:18:27 AEDT
+179,10128,,Accept,CLIENT1DEV_79,"SYSTEM1_HOSTS
+THIRDPARTY32-GCM-DCD_10.16.26.75","Inter-FWL-VLAN4
+PROD-DEV1","L2RD-THIRDPARTY1-DCP_186.217.20.70
+L2RD-THIRDPARTY1-DCP_10.18.3.101",always,Start:00:00-End:00:00 SMTWTFS,TCP_8162,TCP/8162,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:07 AEDT,2025-03-14 15:18:27 AEDT
+199,10151,,Accept,CLIENT1DEV_79,"CLIENT1_DC_Access
+CLIENT1_Nets","CLIENT1DEV_79
+Inter-FWL-VLAN4
+EWAN-FW_408
+PROD-DEV1","CLIENT1_DC_Access
+CLIENT1_Nets",always,Start:00:00-End:00:00 SMTWTFS,ALL,IP/0,"Global_IDPS (ips sensor)
+default (ewall profile-protocol-options)",Log All Sessions,N,2025-01-20 11:33:07 AEDT,2025-03-14 15:18:28 AEDT
+219,10178,,Accept,CLIENT1DEV_79,"SYSTEM1_HOSTS
+DEV5DCD_10.16.49.37","Inter-FWL-VLAN4
+PROD-DEV1",MLX2-THIRDPARTY1-VMP_186.217.20.53,always,Start:00:00-End:00:00 SMTWTFS,smtp,TCP/25,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:08 AEDT,2025-03-14 15:18:28 AEDT
+302,10254,,Accept,CLIENT1DEV_79,"DEV2-CLIENT1-VMD_10.16.27.71
+","Transit_1010
+IN-PROD-VL0",NS_WUF_DEV-10.16.249.10,always,Start:00:00-End:00:00 SMTWTFS,https,TCP/443,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:09 AEDT,2025-03-14 15:18:29 AEDT
+330,10289,,Accept,CLIENT1DEV_79,THIRDPARTY32-CLIENT1-DCD_U4_10.16.27.69,"Inter-FWL-VLAN4
+PROD-DEV1",PSV2-TVO-VMP_10.16.9.41,always,Start:00:00-End:00:00 SMTWTFS,lpdw0rm,TCP/515,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:09 AEDT,2025-03-14 15:18:29 AEDT
+371,10327,,Accept,CLIENT1DEV_79,net_CLIENT1_DEV_10.16.27.64,"Inter-FWL-VLAN4
+PROD-DEV1",TVO_DC,always,Start:00:00-End:00:00 SMTWTFS,"ADports
+Remote_Storm
+TCP-49152_65535
+TCP_1026
+echo-reply
+echo-request","Group Member (12): Kerberos_v5_TCP, Kerberos_v5_UDP, ldap, Ldap, ldap-ssl, ntp-udp, TCP_3268, TCP_3269, dns_, TCP_135, microsoft-ds, NBT_
+TCP/1025
+TCP/49152-65535
+TCP/1026
+ICMP / ANY
+ICMP / 8:ANY",default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:10 AEDT,2025-03-14 15:18:30 AEDT
+447,10418,,Accept,CLIENT1DEV_79,"SYSTEM1_HOSTS
+THIRDPARTY1_SERVER1","Inter-FWL-VLAN4
+PROD-DEV1","HMC1-THIRDPARTY1-VMP_10.18.3.140
+HMC2-THIRDPARTY1-VMP_10.18.3.141
+HMC3-THIRDPARTY1-VMP_10.18.3.142
+HMC4-THIRDPARTY1-VMP_10.18.3.143",always,Start:00:00-End:00:00 SMTWTFS,"TCP_657
+TCP_9900
+TCP_9920
+UDP_657
+UDP_9900
+UDP_9920
+icmp-comms","TCP/657
+TCP/9900
+TCP/9920
+UDP/657
+UDP/9900
+UDP/9920
+Group Member (2): echo-reply, echo-request","Global_IDPS (ips sensor)
+default (ewall profile-protocol-options)",Log All Sessions,N,2025-01-20 11:33:11 AEDT,2025-03-14 15:18:31 AEDT
+494,10488,,Accept,CLIENT1DEV_79,"SYSTEM1_HOSTS
+SYSTEM5LPARs","Inter-FWL-VLAN4
+PROD-DEV1",SW4-THIRDPARTY1-DCP_186.217.20.2,always,Start:00:00-End:00:00 SMTWTFS,ALL,IP/0,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:11 AEDT,2025-03-14 15:18:32 AEDT
+THIRDPARTY1 Proxy Rules (543/590 Total:2),,,,,,,,,,,,,,,,
+556,10539,,Accept,CLIENT1DEV_79,net_CLIENT1_DEV_10.16.27.64,"Inter-FWL-VLAN4
+PROD-DEV1",PRX-THIRDPARTY1-DCP_186.217.20.90,always,Start:00:00-End:00:00 SMTWTFS,TCP_8092,TCP/8092,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:12 AEDT,2025-03-14 15:18:32 AEDT
+562,10545,,Accept,CLIENT1DEV_79,"CLIENT1_THIRDPARTY6_Servers_Dev_new
+net_CLIENT1_DEV_10.16.27.64","Inter-FWL-VLAN4
+PROD-DEV1",PRX-THIRDPARTY1-DCP_186.217.20.90,always,Start:00:00-End:00:00 SMTWTFS,TCP_8149,TCP/8149,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:12 AEDT,2025-03-14 15:18:32 AEDT
+THIRDPARTY2 Rules (806/924 Total:4),,,,,,,,,,,,,,,,
+852,10753,,Accept,CLIENT1DEV_79,"THIRDPARTY32-CLIENT1-DCD_U4_10.16.27.69
+","Inter-FWL-VLAN4
+PROD-DEV1",THIRDPARTY2_TESTS6CardUpdate_10.188.71.150,always,Start:00:00-End:00:00 SMTWTFS,TCP_50801,TCP/50801,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:16 AEDT,2025-03-14 15:18:36 AEDT
+873,10774,,Accept,CLIENT1DEV_79,"THIRDPARTY32-CLIENT1-DCD_U4_10.16.27.69
+THIRDPARTY32-CLIENT1-DCD_U5_10.16.27.70",IN-PROD-VL0,THIRDPARTY2_TESTSWITCH6_10.188.71.200,always,Start:00:00-End:00:00 SMTWTFS,TCP_50438,TCP/50438,default (ewall profile-protocol-options),No Log,Y,2025-01-20 11:33:16 AEDT,2025-01-20 11:33:16 AEDT
+898,10797,THIRDPARTY2 SYSTEM3 Outbound,Accept,CLIENT1DEV_79,"
+dmz_10.248.5.192/26
+dmz2_10.247.81.4
+THIRDPARTY2_SYSTEM3_OUT_Real","Inter-FWL-VLAN4
+IN-PROD-VL0",THIRDPARTY2_SYSTEM3_Dev_Servers,always,Start:00:00-End:00:00 SMTWTFS,TCP_59475-59477,TCP/59475-59477,default (ewall profile-protocol-options),Log All Sessions,Y,2025-01-20 11:33:16 AEDT,2025-01-20 11:33:16 AEDT
+903,1858,,Accept,CLIENT1DEV_79,all,"Inter-FWL-VLAN4
+IN-PROD-VL0",all,always,Start:00:00-End:00:00 SMTWTFS,ALL,IP/0,default (ewall profile-protocol-options),Log Serity Events,N,2025-01-20 11:33:16 AEDT,2025-03-14 15:18:37 AEDT
+CLIENT1 SYSTEM2 (1360/1377 Total:6),,,,,,,,,,,,,,,,
+1360,11081,,Accept,CLIENT1DEV_79,THIRDPARTY32-CLIENT1-DCD_U5_10.16.27.70,"Inter-FWL-VLAN4
+PROD-DEV1",PSV2-TVO-VMP_10.16.9.41,always,Start:00:00-End:00:00 SMTWTFS,lpdw0rm,TCP/515,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:42 AEDT
+1366,11087,,Accept,CLIENT1DEV_79,UFE1-CLIENT1-VMD_10.16.27.72,"Transit_1010
+IN-PROD-VL0",UIB1-CLIENT1-VDZ_10.16.27.195,always,Start:00:00-End:00:00 SMTWTFS,https,TCP/443,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+1373,1769,,Accept,CLIENT1DEV_79,UFE2-CLIENT1-VMD,IN-PROD-VL0,UIB2-CLIENT1-VDZ_10.16.27.198,always,Start:00:00-End:00:00 SMTWTFS,HTTPS,TCP/443,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+1374,1768,,Accept,CLIENT1DEV_79,THIRDPARTY32-CLIENT1-DCD_U5_10.16.27.70,IN-PROD-VL0,UIB2-CLIENT1-VDZ_10.16.27.198,always,Start:00:00-End:00:00 SMTWTFS,FTP,TCP/21,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+1375,1767,,Accept,CLIENT1DEV_79,SQL2-CLIENT1-VMD,IN-PROD-VL0,"..telstra.com
+-rs..telstra.com
+.telstra.com_103.241.84.140",always,Start:00:00-End:00:00 SMTWTFS,PIX_8490-tcp,TCP/8490,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:22 AEDT,2025-05-08 10:27:21 AEST
+1377,1932,,Accept,CLIENT1DEV_79,CLIENT1_Rapid7_Servers,IN-PROD-VL0,rapid7_endpoints,always,Start:00:00-End:00:00 SMTWTFS,HTTPS,TCP/443,default (ewall profile-protocol-options),Log All Sessions,N,2025-03-14 15:18:43 AEDT,2025-03-14 15:18:43 AEDT
+General Microsoft Services (1617/1677 Total:3),,,,,,,,,,,,,,,,
+1618,11278,,Accept,CLIENT1DEV_79,TVO_AllNets,"Inter-FWL-VLAN4
+PROD-DEV1",TVO_AD,always,Start:00:00-End:00:00 SMTWTFS,"NBT_
+TCP_135
+microsoft-ds","Group Member (4): nbdatagram, nbname, nbname_tcp, nbsession
+TCP/135
+TCP/445","Global_IDPS (ips sensor)
+default (ewall profile-protocol-options)",Log All Sessions,N,2025-01-20 11:33:25 AEDT,2025-03-14 15:18:46 AEDT
+1671,11332,,Accept,CLIENT1DEV_79,CLIENT1_AllNets,"CLIENT1DEV_79
+Inter-FWL-VLAN4
+Transit_1010
+IN-PROD-VL0
+PROD-DEV1",CLIENT1_AllNets,always,Start:00:00-End:00:00 SMTWTFS,"NBT_
+TCP_135
+microsoft-ds","Group Member (4): nbdatagram, nbname, nbname_tcp, nbsession
+TCP/135
+TCP/445",default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:26 AEDT,2025-03-14 15:18:47 AEDT
+1675,11336,,Accept,CLIENT1DEV_79,"SFT1-DCP-VMP_186.217.20.57
+TmpMsPoolSrc","AD_DEV_11
+_DEV_12
+DEV_14
+DEV_150
+DEV_162
+DEV_173
+DEV_174
+DEV_18
+DEV_29
+THIRDPARTY1DEV_40
+DEV_44
+DEV2_706
+DEV_78
+BCDEV_81
+WAN_21
+Inter-FWL-VLAN4
+EWAN-FW_408
+Transit_1010
+IN-PROD-VL0
+PROD-DEV1",TmpMsPoolDst,always,Start:00:00-End:00:00 SMTWTFS,"NBT_
+TCP_135
+microsoft-ds","Group Member (4): nbdatagram, nbname, nbname_tcp, nbsession
+TCP/135
+TCP/445","Global_IDPS (ips sensor)
+default (ewall profile-protocol-options)",Log All Sessions,N,2025-01-20 11:33:30 AEDT,2025-03-14 15:18:48 AEDT
+        ADOM: DC_Fortigate_Inside-FW01        Policy Package: DC-FortiGate_INSIDE-FW01        Export by: ZZZ_LDAPS_SuperAdmin        e: 2025-06-12 15:43:35        Total Policy: 30,,,,,,,,,,,,,,,,
+Seq #,ID,Name,Action,Source,,Destination,,Schedule,,Service,,Serity Profiles,Log,NAT,Created e,Last Modified e
+,,,,Normalized Interface,Address,Normalized Interface,Address,Name,Value,Name,Value,,,,,
+,,,,,User,,,,,,,,,,,
+,,,,,Device,,,,,,,,,,,
+Main Rulebase (74/517 Total:10),,,,,,,,,,,,,,,,
+144,10093,,Accept,"Inter-FWL-VLAN4
+PROD-DEV1","FSM1-FLX1-BEL_10.18.1.85
+FSM1-FLX1-DCP_10.18.0.85
+NIM1-THIRDPARTY1-DCP_186.217.20.234
+P5HMC_186.217.20.235
+P6HMC3_186.217.30.103
+P6HMC_186.217.30.56
+P7HMC4-THIRDPARTY1-DCP_186.217.30.121",CLIENT1DEV_79,"SYSTEM1_HOSTS
+SYSTEM5LPARs
+THIRDPARTY1_SERVER1",always,Start:00:00-End:00:00 SMTWTFS,ALL,IP/0,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:06 AEDT,2025-03-14 15:18:27 AEDT
+199,10151,,Accept,"CLIENT1DEV_79
+Inter-FWL-VLAN4
+EWAN-FW_408
+PROD-DEV1","CLIENT1_DC_Access
+CLIENT1_Nets",CLIENT1DEV_79,"CLIENT1_DC_Access
+CLIENT1_Nets",always,Start:00:00-End:00:00 SMTWTFS,ALL,IP/0,"Global_IDPS (ips sensor)
+default (ewall profile-protocol-options)",Log All Sessions,N,2025-01-20 11:33:07 AEDT,2025-03-14 15:18:28 AEDT
+216,10169,,Accept,"Inter-FWL-VLAN4
+PROD-DEV1","THIRDPARTY1_OPS_Admin
+net_THIRDPARTY1_HO-VLAN_230.35.50.128",CLIENT1DEV_79,"SYSTEM1_HOSTS
+PROD_10.16.9.50
+TEST_10.16.10.130
+SYSTEM5LPARs
+Linux_Svrs
+THIRDPARTY1_SERVER1
+",always,Start:00:00-End:00:00 SMTWTFS,"TCP_1580
+TCP_1581-1583
+TCP_1591-1593
+VPN_TCP-10000
+ftp_basic
+icmp-comms
+ssh
+telnet","TCP/1580
+TCP/1581-1583
+TCP/1591-1593
+TCP/10000
+TCP/21
+Group Member (2): echo-reply, echo-request
+TCP/22
+TCP/23",default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:08 AEDT,2025-03-14 15:18:28 AEDT
+221,10180,,Accept,"Inter-FWL-VLAN4
+PROD-DEV1",ARS1-THIRDPARTY1-VMP_186.217.20.218,CLIENT1DEV_79,"TEST_10.16.10.130
+SYSTEM1_HOSTS",always,Start:00:00-End:00:00 SMTWTFS,ssh,TCP/22,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:08 AEDT,2025-05-01 13:34:20 AEST
+225,10184,,Accept,"Inter-FWL-VLAN4
+Transit_1010
+IN-PROD-VL0
+PROD-DEV1","Net_THIRDPARTY1VPN_230.35.51.0
+THIRDPARTY3_VPN_IP-110.193.160.201
+THIRDPARTY3_VPN_IP-110.193.160.204
+net_THIRDPARTY1VPNSSL_THIRDPARTY3_230.35.60.128",CLIENT1DEV_79,THIRDPARTY3_Host_Access,always,Start:00:00-End:00:00 SMTWTFS,"ssh
+ssh_version_2
+telnet","TCP/22
+TCP/22
+TCP/23",default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:08 AEDT,2025-03-14 15:18:28 AEDT
+235,10193,,Accept,"THIRDPARTY1DEV_40
+Inter-FWL-VLAN4
+PROD-DEV1
+BSKDEV_43","SYSTEM4_PVS_Servers
+PVS1-SYSTEM4-VMD_10.16.15.10
+RFU1-BSK-VMD_10.16.85.87
+SQL3-BSK-VMD_10.16.85.80","DEV_104
+AD_DEV_11
+_DEV_12
+T_1316
+DEV_14
+DEV_150
+DEV_151
+QDEV_152
+DEV_153
+DEV_154
+DEV_155
+DEV_156
+EDEV_157
+DEV_158
+DEV_159
+FDEV_161
+DEV_162
+DEV_163
+DEV_164
+DEV_165
+EV_166
+DEV_167
+HDEV_186
+DEV_169
+DEV_17
+DEV_170
+DEV_171
+DEV_10
+DEV_173
+DEV_174
+DEV_175
+ODEV_176
+DEV_177
+DEV_178
+DEV_18
+DEV_180
+DEV_183
+DEV_19
+DEV_230
+DEV_207
+DEV_215
+DEV_27
+DEV_272
+DEV_29
+DEV_33
+TDEV_331
+DEV_346
+LDEV_349
+DEV_35
+DEV_359
+FDASQLD_363
+FILED_372
+STG_375
+DEV_379
+DEV_383
+DEV_388
+DEV_392
+THIRDPARTY1DEV_40
+DEV_43
+DEV_44
+SDEV_465
+DEV_48
+DEV_49
+DELPDEV_521
+DEV2_706
+SYSTEM1D_708
+SDEV_73
+DEV_74
+DEV_75
+DEV_76
+DEV_77
+DEV_78
+CLIENT1DEV_79
+DEV_81
+DEV_83
+NOMANSLAND_51
+WAN_21
+Inter-FWL-VLAN4
+WAN_31
+WAN_283
+WAN_25
+WAN_343
+EWAN-FW_408
+AZR-BNK_1701
+AZR-NI_1700
+AZR-THIRDPARTY1_1702
+AZR-_1703
+AZR-PSS_1704
+Transit_1010
+IN-PROD-VL0
+AZR-FOB_1706
+AZR-SYSTEM4_1707
+AZR-RAB_1708
+AZR-_1709
+AZR-_1710
+PROD-DEV1",".accounts.cloud.com
+.ap-s.cloud.com
+.blob.core.windows.net
+.citrixnetworkapi.net
+.citrixworkspacesapi.net
+.cloud.citrix.com
+.cloud.com
+.cloTHIRDPARTY3pp.net
+.cwsproduction.blob.core.windows.net
+.digicert.com
+.dl.cacerts.digicert.com/DigiCerTHIRDPARTY1suredIDRootCA.crt
+.dl.cacerts.digicert.com/DigiCertSHA2AssuredIDCodeSigningCA.crt
+.nssvc.net
+.servicebus.windows.net
+.wem.cloud.com
+.desktop.net
+All_Internet",always,Start:00:00-End:00:00 SMTWTFS,"http
+https","TCP/80
+TCP/443",default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:08 AEDT,2025-03-14 15:18:28 AEDT
+245,10230,,Accept,"Inter-FWL-VLAN4
+PROD-DEV1",TVO_Domain_Controllers,"DEV_150
+ODEV_176
+CLIENT1DEV_79",net_CLIENT1_DEV_10.16.27.64,always,Start:00:00-End:00:00 SMTWTFS,"ADports
+Remote_Storm
+TCP-49152_65435
+TCP_1026
+echo-reply
+echo-request","Group Member (12): Kerberos_v5_TCP, Kerberos_v5_UDP, ldap, Ldap, ldap-ssl, ntp-udp, TCP_3268, TCP_3269, dns_, TCP_135, microsoft-ds, NBT_
+TCP/1025
+TCP/49152-65435
+TCP/1026
+ICMP / ANY
+ICMP / 8:ANY",default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:09 AEDT,2025-03-14 15:18:28 AEDT
+331,10290,,Accept,"Inter-FWL-VLAN4
+PROD-DEV1",CLIENT1_THIRDPARTY6_Servers_Dev_new,CLIENT1DEV_79,THIRDPARTY32-CLIENT1-DCD_U4_10.16.27.69,always,Start:00:00-End:00:00 SMTWTFS,"TCP_8810
+TCP_8811
+telnet","TCP/8810
+TCP/8811
+TCP/23",default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:09 AEDT,2025-03-14 15:18:29 AEDT
+446,10417,,Accept,"Inter-FWL-VLAN4
+PROD-DEV1","HMC1-THIRDPARTY1-VMP_10.18.3.140
+HMC2-THIRDPARTY1-VMP_10.18.3.141
+HMC3-THIRDPARTY1-VMP_10.18.3.142
+HMC4-THIRDPARTY1-VMP_10.18.3.143",CLIENT1DEV_79,"SYSTEM1_HOSTS
+THIRDPARTY1_SERVER1",always,Start:00:00-End:00:00 SMTWTFS,"TCP_657
+TCP_9900
+TCP_9920
+UDP_657
+UDP_9900
+UDP_9920
+icmp-comms","TCP/657
+TCP/9900
+TCP/9920
+UDP/657
+UDP/9900
+UDP/9920
+Group Member (2): echo-reply, echo-request",default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:11 AEDT,2025-03-14 15:18:31 AEDT
+495,10489,,Accept,"Inter-FWL-VLAN4
+PROD-DEV1",SW4-THIRDPARTY1-DCP_186.217.20.2,CLIENT1DEV_79,"SYSTEM1_HOSTS
+SYSTEM5LPARs",always,Start:00:00-End:00:00 SMTWTFS,ALL,IP/0,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:11 AEDT,2025-03-14 15:18:32 AEDT
+THIRDPARTY2 Rules (806/924 Total:3),,,,,,,,,,,,,,,,
+816,1444,CLIENT1 SYSTEM3 inbound,Accept,IN-PROD-VL0,THIRDPARTY2_SYSTEM3_Dev_Servers,CLIENT1DEV_79,vip_CLIENT1_10.16.27.74_186.217.55.246,always,Start:00:00-End:00:00 SMTWTFS,https,TCP/443,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:15 AEDT,2025-03-14 15:18:36 AEDT
+907,10800,,Accept,"Inter-FWL-VLAN4
+PROD-DEV1",THIRDPARTY2_SYSTEM3DEV_186.217.6.121,CLIENT1DEV_79,THIRDPARTY2_SYSTEM3_Inbound_NAT,always,Start:00:00-End:00:00 SMTWTFS,https,TCP/443,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:16 AEDT,2025-03-14 15:18:37 AEDT
+912,10805,,Accept,"Inter-FWL-VLAN4
+PROD-DEV1
+IN-PROD-VL0",THIRDPARTY2_SYSTEM3_Dev_Servers,CLIENT1DEV_79,"lb__npg_dev_http_u5_10.16.39.76
+lb__npg_dev_https_u5_10.16.53.79
+lb_s_npg_dev_https_u5_10.16.18.78
+lb_CLIENT1_npg_U5_dev_https_10.16.27.74",always,Start:00:00-End:00:00 SMTWTFS,https,TCP/443,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:16 AEDT,2025-03-14 15:18:37 AEDT
+CLIENT1 SYSTEM2 (1360/1377 Total:12),,,,,,,,,,,,,,,,
+1361,11082,,Accept,"Transit_1010
+IN-PROD-VL0",UIB1-CLIENT1-VDZ_10.16.27.195,CLIENT1DEV_79,SQL1-CLIENT1-VMD_10.16.27.73,always,Start:00:00-End:00:00 SMTWTFS,"MS-SQL-Server
+http","TCP/1433
+TCP/80",default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:42 AEDT
+1362,11083,,Accept,"Transit_1010
+IN-PROD-VL0",UIB1-CLIENT1-VDZ_10.16.27.195,CLIENT1DEV_79,THIRDPARTY32-CLIENT1-DCD_U5_10.16.27.70,always,Start:00:00-End:00:00 SMTWTFS,"TCP_8911-8912
+ftp","TCP/8911-8912
+TCP/21",default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:42 AEDT
+1363,11084,,Accept,"Inter-FWL-VLAN4
+PROD-DEV1","SQL1-CLIENT1-VMP_10.16.27.23
+UFE1-CLIENT1-VMP_10.16.27.22",CLIENT1DEV_79,"SQL1-CLIENT1-VMD_10.16.27.73
+UFE1-CLIENT1-VMD_10.16.27.72
+UIB1-CLIENT1-VMZ_10.16.27.131",always,Start:00:00-End:00:00 SMTWTFS,Remote_Desktop_Protocol,TCP/3389,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+1364,11085,,Accept,"WAN_21
+EWAN-FW_408
+Transit_1010
+IN-PROD-VL0","Net_10.84.0.0
+UIB1-CLIENT1-VDZ_10.16.27.195",CLIENT1DEV_79,UFE1-CLIENT1-VMD_10.16.27.72,always,Start:00:00-End:00:00 SMTWTFS,"http
+https","TCP/80
+TCP/443","Global_IDPS (ips sensor)
+default (ewall profile-protocol-options)",Log All Sessions,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+1365,11086,,Accept,"Transit_1010
+IN-PROD-VL0",UIB1-CLIENT1-VDZ_10.16.27.195,CLIENT1DEV_79,lb_CLIENT1_npg_U5_dev_https_10.16.27.74,always,Start:00:00-End:00:00 SMTWTFS,https,TCP/443,default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+1367,1640,,Accept,"Inter-FWL-VLAN4
+IN-PROD-VL0","CLIENT1_SSLVPN_DEV_10.17.240.40/29
+CLIENT1_SSLVPN_PROD_10.24.2.128/25
+CLIENT1_Nets",CLIENT1DEV_79,UFE1-CLIENT1-VMD_10.16.27.72,always,Start:00:00-End:00:00 SMTWTFS,"HTTP
+HTTPS
+RDP","TCP/80
+TCP/443
+TCP/3389",default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+1368,1754,,Accept,IN-PROD-VL0,"CLIENT1_SSLVPN_DEV_10.17.240.40/29
+CLIENT1_SSLVPN_PROD_10.24.2.128/25
+CLIENT1_Nets",CLIENT1DEV_79,SQL2-CLIENT1-VMD,always,Start:00:00-End:00:00 SMTWTFS,"HTTP
+HTTPS
+MS-SQL-Server","TCP/80
+TCP/443
+TCP/1433",default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+1369,1753,,Accept,IN-PROD-VL0,"CLIENT1_SSLVPN_DEV_10.17.240.40/29
+CLIENT1_SSLVPN_PROD_10.24.2.128/25
+CLIENT1_Nets",CLIENT1DEV_79,UFE2-CLIENT1-VMD,always,Start:00:00-End:00:00 SMTWTFS,"HTTP
+HTTPS","TCP/80
+TCP/443",default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+1370,1641,,Accept,"IN-PROD-VL0
+Inter-FWL-VLAN4","CLIENT1_SSLVPN_DEV_10.17.240.40/29
+CLIENT1_SSLVPN_PROD_10.24.2.128/25
+CLIENT1_Nets",CLIENT1DEV_79,THIRDPARTY32-CLIENT1-DCD_U5_10.16.27.70,always,Start:00:00-End:00:00 SMTWTFS,"SSH
+TCP_8810-8811
+TELNET
+RDP","TCP/22
+TCP/8810-8811
+TCP/23
+TCP/3389",default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+1371,1642,,Accept,"Inter-FWL-VLAN4
+IN-PROD-VL0","CLIENT1_SSLVPN_DEV_10.17.240.40/29
+CLIENT1_SSLVPN_PROD_10.24.2.128/25
+CLIENT1_Nets",CLIENT1DEV_79,SQL1-CLIENT1-VMD_10.16.27.73,always,Start:00:00-End:00:00 SMTWTFS,"HTTP
+MS-SQL-Server","TCP/80
+TCP/1433",default (ewall profile-protocol-options),No Log,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+1372,1770,,Accept,IN-PROD-VL0,UIB2-CLIENT1-VDZ_10.16.27.198,CLIENT1DEV_79,THIRDPARTY32-CLIENT1-DCD_U5_10.16.27.70,always,Start:00:00-End:00:00 SMTWTFS,TCP_8911,TCP/8911,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+1376,1829,,Accept,IN-PROD-VL0,THIRDPARTY2_SYSTEM3_Dev_Servers,CLIENT1DEV_79,h_10.16.27.75,always,Start:00:00-End:00:00 SMTWTFS,https,TCP/443,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:22 AEDT,2025-03-14 15:18:43 AEDT
+Temporary Rules (1600/1609 Total:1),,,,,,,,,,,,,,,,
+1601,11244,,Accept,"Transit_1010
+IN-PROD-VL0",2-CLIENT1-VMZ_10.16.27.130,CLIENT1DEV_79,THIRDPARTY32-CLIENT1-DCD_U4_10.16.27.69,always,Start:00:00-End:00:00 SMTWTFS,TCP_8911-8912,TCP/8911-8912,default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:24 AEDT,2025-03-14 15:18:45 AEDT
+General Microsoft Services (1617/1677 Total:1),,,,,,,,,,,,,,,,
+1671,11332,,Accept,"CLIENT1DEV_79
+Inter-FWL-VLAN4
+Transit_1010
+IN-PROD-VL0
+PROD-DEV1",CLIENT1_AllNets,CLIENT1DEV_79,CLIENT1_AllNets,always,Start:00:00-End:00:00 SMTWTFS,"NBT_
+TCP_135
+microsoft-ds","Group Member (4): nbdatagram, nbname, nbname_tcp, nbsession
+TCP/135
+TCP/445",default (ewall profile-protocol-options),Log All Sessions,N,2025-01-20 11:33:26 AEDT,2025-03-14 15:18:47 AEDT
+Cloud PC to DC Networks (103/106 Total:3),,,,,,,,,,,,,,,,
+104,1791,,Accept,IN-PROD-VL0,CLIENT1_CloudPC,CLIENT1DEV_79,SQL2-CLIENT1-VMD,always,Start:00:00-End:00:00 SMTWTFS,"HTTP
+HTTPS
+MS-SQL-Server","TCP/80
+TCP/443
+TCP/1433","Global_IDPS (ips sensor)
+default (ewall profile-protocol-options)",Log All Sessions,N,2025-01-20 11:33:31 AEDT,2025-03-14 15:18:49 AEDT
+105,1790,,Accept,IN-PROD-VL0,CLIENT1_CloudPC,CLIENT1DEV_79,UFE2-CLIENT1-VMD,always,Start:00:00-End:00:00 SMTWTFS,"HTTP
+HTTPS","TCP/80
+TCP/443","Global_IDPS (ips sensor)
+default (ewall profile-protocol-options)",Log All Sessions,N,2025-01-20 11:33:31 AEDT,2025-03-14 15:18:49 AEDT
+106,1789,,Accept,IN-PROD-VL0,CLIENT1_CloudPC,CLIENT1DEV_79,THIRDPARTY32-CLIENT1-DCD_U5_10.16.27.70,always,Start:00:00-End:00:00 SMTWTFS,"SSH
+TCP_8810-8811","TCP/22
+TCP/8810-8811","Global_IDPS (ips sensor)
+default (ewall profile-protocol-options)",Log All Sessions,N,2025-01-20 11:33:31 AEDT,2025-03-14 15:18:49 AEDT

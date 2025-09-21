@@ -9,7 +9,7 @@ this script is the small "parser-only" tool. it reads one firewall export
 and writes:
   1) a flat CSV (same fields as we parsed), and
   2) optionally a v0.1 normalized JSONL (for the rest of FireFind).
-kept it simple on purpose: mild heuristics, some defaults (e.g., severity=info),
+kept it simple on purpose: mild heuristics, some defaults (ex: severity=info),
 and a helper to auto-try sheets/scan/skip combos if the header is messy.
 """
 
@@ -20,7 +20,7 @@ from typing import Optional, Dict, Any, List, Iterable, Tuple
 import pandas as pd
 from .v01 import to_v01
 
-# -------------------------- small utils --------------------------
+# small utils
 
 def _lc(s: str | None) -> str:
     # lowercase/trim helper (used a couple of times)
@@ -44,6 +44,9 @@ def write_flat_csv(rows: List[dict], path: Path) -> None:
                 out["severity"] = "info"
             w.writerow(out)
 
+     #we will use if we end up dealing with multiple vendors this is will help instead of hardcoding
+     #hundreds of more regexes into v01
+"""""
 def load_svc_map(path: Optional[str]) -> Optional[Dict[str, Any]]:
     # optional: user can pass a JSON map for vendor service names -> proto/ports
     if not path: return None
@@ -57,8 +60,43 @@ def load_svc_map(path: Optional[str]) -> Optional[Dict[str, Any]]:
     except Exception as e:
         print(f"Warning: bad --svc-map JSON: {e}", file=sys.stderr)
         return None
+       """
 
-# -------------------------- header detection --------------------------
+# vendor detection (file-level)
+VENDOR_PATTERNS = [
+    (r"forti[_\s\-]?(gate|os|net)",          "fortinet"),
+
+    (r"\bsophos\b|\b(xg|utm)\b",             "sophos"),
+    (r"\bbarracuda\b",                       "barracuda"),
+    (r"\b(checkpoint|check\s*point|gaia)\b", "checkpoint"),
+    (r"\bwatch\s*guard\b|\bwatchguard\b",    "watchguard"),
+]
+
+def _canon_vendor_text(s: str | None) -> str | None:
+    if not s:
+        return None
+    text = str(s).lower()
+    import re as _re
+    for pat, slug in VENDOR_PATTERNS:
+        if _re.search(pat, text):
+            return slug
+    return None
+
+def detect_vendor_from_xlsx_header(xlsx_path: str) -> str | None:
+    """Read just the top rows (merged header area) to spot vendor."""
+    try:
+        head = pd.read_excel(xlsx_path, nrows=6, header=None, dtype=str)
+        blob = " | ".join(v for v in head.fillna("").to_numpy().ravel().tolist() if str(v).strip())
+        return _canon_vendor_text(blob)
+    except Exception:
+        return None
+
+def detect_vendor_from_filename(path: str) -> str | None:
+    from pathlib import Path as _P
+    return _canon_vendor_text(_P(path).name)
+
+
+#### header detection
 
 def _nk(s: str) -> str:
     # "normalize key": keep a-z0-9 only, so "Destination/s" -> "destinations"
@@ -98,7 +136,7 @@ def _find_header(df: pd.DataFrame, scan_rows: int) -> Tuple[int, Dict[str,int]]:
             best_hits, best_idxs, best_row = hits, idxs, r
     return best_row, best_idxs
 
-# -------------------------- parser (CSV + XLSX) --------------------------
+# parser (CSV + XLSX)
 
 def list_sheets(path: str) -> List[str]:
     # if it's an excel file, list its sheet names (useful for --list-sheets)
@@ -154,7 +192,13 @@ def parse(path: str, *, sheet: Optional[str] = None, header_scan_rows: int = 15,
     c_sev  = col(CANDIDATES["severity"])
 
     # mild vendor guess: some Check Point exports have "Firewall Policy" sheet
-    vendor_guess = "checkpoint" if (isinstance(sheet, str) and "firewall policy" in sheet.lower()) else "unknown"
+    #vendor_guess = "checkpoint" if (isinstance(sheet, str) and "firewall policy" in sheet.lower()) else "unknown"
+    # Strengthening name detection
+    # file-level vendor detection (prefer XLSX header, else filename)
+    if p.suffix.lower() in {".xlsx", ".xls"}:
+        vendor_guess = detect_vendor_from_xlsx_header(str(p)) or detect_vendor_from_filename(str(p)) or "unknown"
+    else:
+        vendor_guess = detect_vendor_from_filename(str(p)) or "unknown"
 
     # iterate rows and skip obvious banners or empty lines
     for _, row in df.iterrows():
@@ -170,7 +214,7 @@ def parse(path: str, *, sheet: Optional[str] = None, header_scan_rows: int = 15,
         v_rsn  = val(c_rsn)
         v_sev  = val(c_sev) or "info"
 
-        # --- Skip non-rule/banner lines ---
+        # Skip non-rule/banner lines
         if not any([v_rule, v_src, v_dst, v_svc, v_act]):
             continue
         if v_src.lower() == "normalized interface" and v_dst.lower() == "normalized interface":
@@ -190,7 +234,7 @@ def parse(path: str, *, sheet: Optional[str] = None, header_scan_rows: int = 15,
             "severity": v_sev,
         }
 
-# -------------------------- CLI plumbing --------------------------
+#  CLI plumbing
 
 def try_parse(in_file: Path, sheet: Optional[str], header_scan: int, skip_rows: int) -> List[dict]:
     # try the given params; if user’s pandas is older/newer and types clash, fallback
@@ -279,17 +323,26 @@ def main() -> int:
         print(f"0 rules parsed. Wrote hint: {out_dir / (in_file.stem + '.NO_RULES.txt')}")
         return 3
 
+
     # Optional normalized JSONL v0.1 (feeds the rest of FireFind)
     if args.json_v01:
         v01_path = out_dir / f"{in_file.stem}.rules.v01.jsonl"
+        # Prefer file header, else filename, else (very last resort) sheet-name heuristic
         vendor_hint = None
-        if isinstance(chosen_sheet, str) and "firewall policy" in chosen_sheet.lower():
+        if in_file.suffix.lower() in {".xlsx", ".xls"}:
+            vendor_hint = detect_vendor_from_xlsx_header(str(in_file))
+        if not vendor_hint:
+            vendor_hint = detect_vendor_from_filename(str(in_file))
+        if not vendor_hint and isinstance(chosen_sheet, str) and "firewall policy" in chosen_sheet.lower():
             vendor_hint = "checkpoint"
-        svc_map = load_svc_map(args.svc_map)
+
+        # if future svc_map is needed uncomment line below
+        '''svc_map = load_svc_map(args.svc_map)'''
         with v01_path.open("w", encoding="utf-8") as f:
             for r in rules:
-                f.write(json_dumps(to_v01(r, vendor_hint, svc_map)) + "\n")
+                f.write(json_dumps(to_v01(r, vendor_hint)) + "\n")
         print(f"✓ Wrote: {v01_path.resolve()}")
+
 
     # Flat CSV (simple view; risk engine is not involved here)
     out_csv = out_dir / f"{in_file.stem}.findings.csv"
