@@ -1,0 +1,225 @@
+# FireFind Risk Rules (v0.1)
+# This file lists the rules we want FireFind to check for.
+# The idea is: firewall configs get normalized → these rules decide what looks risky.
+# Anyone can edit this file to add/remove/change rules without touching the code.
+
+version: 0.1
+meta:
+  name: "FireFind Baseline Rules"
+  updated: "2025-09-24"
+  owner: "Triskele Labs / FireFind Team"
+
+# Severity levels we’ll use when flagging problems
+severity_scale: [low, medium, high, critical]
+
+# Groups of ports or networks we’ll re-use across multiple rules
+sets:
+  port_groups:
+    # Common admin ports that attackers often target
+    admin_ports: [22,23,3389,5900,5985,5986,445,135,139,20,21]
+    # Old/clear-text protocols that aren’t secure
+    insecure_cleartext: [23,20,21,69,110,143]   # telnet, ftp, tftp, pop3, imap
+    # Web ports (some could be admin panels depending on context)
+    web_like: [80,443,8080,8443]
+  cidr_groups:
+    # Represents “anywhere” in IPv4 or IPv6
+    any: ["0.0.0.0/0","::/0"]
+
+# Default settings for reports
+defaults:
+  # Columns that will show up in the CSV output
+  report_columns: [rule_id, vendor, action, direction, src, dst, service, severity, rationale]
+  # If we know about custom service names, we can list them here so they aren’t flagged as “unknown”
+  unknown_service_name_patterns: []
+
+rules:
+
+  # Rule 1: Flag any rule that is wide open (any to any with any service)
+  - id: R-ALLOW-ANY-ANY-ANY
+    name: "Allow any↔any with any service"
+    severity: critical
+    rationale: "This basically allows everything through, no restrictions at all."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - any:
+            - { field: src.any, op: is_true, value: true }
+            - { field: src.cidr, op: contains, value: "0.0.0.0/0" }
+            - { field: src.cidr, op: contains, value: "::/0" }
+        - any:
+            - { field: dst.any, op: is_true, value: true }
+            - { field: dst.cidr, op: contains, value: "0.0.0.0/0" }
+            - { field: dst.cidr, op: contains, value: "::/0" }
+        - { field: service.any, op: is_true, value: true }
+
+  # Rule 2: Any to any, but only for specific services (still very broad)
+  - id: R-ALLOW-ANY-ANY-SOME
+    name: "Allow any↔any with specific service"
+    severity: high
+    rationale: "Even if ports are limited, any→any is still too open."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - any:
+            - { field: src.any, op: is_true, value: true }
+            - { field: src.cidr, op: contains, value: "0.0.0.0/0" }
+            - { field: src.cidr, op: contains, value: "::/0" }
+        - any:
+            - { field: dst.any, op: is_true, value: true }
+            - { field: dst.cidr, op: contains, value: "0.0.0.0/0" }
+            - { field: dst.cidr, op: contains, value: "::/0" }
+        - any:
+            - { field: service.any, op: is_false, value: true }
+            - { field: service.ports, op: contains, value: "*" }
+
+  # Rule 3: Inbound rules that expose admin ports to the world
+  - id: R-INBOUND-ADMIN-OPEN
+    name: "Inbound admin ports exposed"
+    severity: critical
+    rationale: "Remote admin ports should never be open to everyone."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - any:
+            - { field: direction, op: equals, value: inbound }
+            - { field: direction, op: equals, value: any }
+        - any:
+            - { field: src.any, op: is_true, value: true }
+            - { field: src.cidr, op: contains, value: "0.0.0.0/0" }
+            - { field: src.cidr, op: contains, value: "::/0" }
+        - { field: service.ports, op: overlaps_range, value: { set_ref: port_groups.admin_ports } }
+
+  # Rule 4: Clear-text protocols (like Telnet, FTP, POP3) from anywhere
+  - id: R-INSECURE-CLEARTEXT
+    name: "Insecure clear-text protocols allowed from any"
+    severity: high
+    rationale: "Using old protocols without encryption is dangerous if exposed broadly."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - any:
+            - { field: src.any, op: is_true, value: true }
+            - { field: src.cidr, op: contains, value: "0.0.0.0/0" }
+            - { field: src.cidr, op: contains, value: "::/0" }
+        - { field: service.ports, op: overlaps_range, value: { set_ref: port_groups.insecure_cleartext } }
+
+  # Rule 5: Catch very broad network ranges like /0–/8
+  - id: R-OVERBROAD-NETS
+    name: "Over-broad CIDR ranges"
+    severity: high
+    rationale: "Huge address ranges mean almost no restriction."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - any:
+            - { field: src.max_prefix_len, op: lte, value: 8 }
+            - { field: dst.max_prefix_len, op: lte, value: 8 }
+
+  # Rule 6: Flag services we couldn’t identify properly
+  - id: R-UNKNOWN-SERVICE
+    name: "Unknown or opaque service"
+    severity: medium
+    rationale: "If we don’t know what the service is, we can’t judge it safely."
+    when:
+      all:
+        - { builtin: unknown_service }
+
+  # Rule 7: Rules that allow traffic both ways (A→B and B→A)
+  - id: R-RECIPROCAL
+    name: "Reciprocal allow rules"
+    severity: medium
+    rationale: "Two-way access is often unnecessary and risky."
+    when:
+      all:
+        - { builtin: reciprocal }
+
+  # Rule 8: Inbound web ports (HTTP/HTTPS) but to broad destinations
+  - id: R-INBOUND-WEB-BROAD
+    name: "Inbound web to broad/non-scoped destinations"
+    severity: medium
+    rationale: "Web access is normal, but shouldn’t be open to everything."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - any:
+            - { field: direction, op: equals, value: inbound }
+            - { field: direction, op: equals, value: any }
+        - { field: service.ports, op: overlaps_range, value: { set_ref: port_groups.web_like } }
+        - any:
+            - { field: dst.any, op: is_true, value: true }
+            - { field: dst.max_prefix_len, op: lte, value: 16 }
+
+  # Rule 9: Outbound any-to-any (bad for data exfiltration)
+  - id: R-OUTBOUND-ANY-ANY-ANY
+    name: "Outbound any↔any with any service"
+    severity: high
+    rationale: "Wide open outbound traffic makes data leaks hard to spot."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - any:
+            - { field: direction, op: equals, value: outbound }
+            - { field: direction, op: equals, value: any }
+        - any:
+            - { field: src.any, op: is_true, value: true }
+            - { field: src.cidr, op: contains, value: "0.0.0.0/0" }
+            - { field: src.cidr, op: contains, value: "::/0" }
+        - any:
+            - { field: dst.any, op: is_true, value: true }
+            - { field: dst.cidr, op: contains, value: "0.0.0.0/0" }
+            - { field: dst.cidr, op: contains, value: "::/0" }
+        - { field: service.any, op: is_true, value: true }
+
+  # Rule 10: Admin ports open to private/internal networks
+  - id: R-INBOUND-ADMIN-TO-PRIVATE
+    name: "Inbound admin to private ranges"
+    severity: critical
+    rationale: "Remote admin should be locked down, even to private ranges."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - any:
+            - { field: direction, op: equals, value: inbound }
+            - { field: direction, op: equals, value: any }
+        - any:
+            - { field: src.any, op: is_true, value: true }
+            - { field: src.cidr, op: contains, value: "0.0.0.0/0" }
+            - { field: src.cidr, op: contains, value: "::/0" }
+        - { field: dst.is_private, op: is_true, value: true }
+        - { field: service.ports, op: overlaps_range, value: { set_ref: port_groups.admin_ports } }
+
+  # Rule 11: ICMP (ping) wide open
+  - id: R-ICMP-ANY
+    name: "ICMP allowed any↔any"
+    severity: medium
+    rationale: "Ping and ICMP can be abused for mapping or tunneling."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - any:
+            - { field: service.proto, op: equals, value: icmp }
+            - { field: service.name, op: equals, value: icmp }
+        - any:
+            - { field: src.any, op: is_true, value: true }
+            - { field: dst.any, op: is_true, value: true }
+
+  # Rule 12: Very wide port ranges
+  - id: R-WIDE-PORT-SPAN
+    name: "Very wide service port span"
+    severity: medium
+    rationale: "Catching cases where too many ports are included."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - { field: service.port_span, op: gte, value: 1000 }
+
+  # Rule 13: High-risk rule without logging enabled
+  - id: R-HIGH-RISK-NO-LOG
+    name: "High-risk rule without logging"
+    severity: medium
+    rationale: "We can’t investigate properly if logging is turned off."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - { field: logging.enabled, op: is_false, value: true }
+        - { field: service.ports, op: overlaps_range, value: { set_ref: port_groups.admin_ports } }

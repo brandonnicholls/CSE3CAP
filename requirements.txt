@@ -2,3 +2,4 @@ openpyxl
 pytest
 jsonschema
 pandas
+pyyaml
