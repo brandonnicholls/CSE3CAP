@@ -1,0 +1,22 @@
+Open a terminal in the folder where firefind is and run:
+
+Upload / convert:
+
+python firefind/uploader.py
+
+Run normalization + risk check:
+
+python firefind/loader.py
+
+-----
+
+Adding a methd to existing code:
+
+from firefind.loader import load_and_check_rules
+
+rules = load_and_check_rules("firewall_rules.csv", vendor_hint="cisco")
+
+for entry in rules:
+    print(entry["rule"]["rule_id"], entry["findings"])
+    
+    -----

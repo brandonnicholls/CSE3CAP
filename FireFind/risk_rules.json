@@ -1,0 +1,21 @@
+{
+  "rules": [
+    {
+      "id": "open_admin_port",
+      "description": "Detects open administrative ports (22, 23, 3389, 1433, 445).",
+      "severity": "high",
+      "match": {
+        "services": [22, 23, 3389, 1433, 445]
+      }
+    },
+    {
+      "id": "allow_any",
+      "description": "Detects rules allowing from ANY to ANY.",
+      "severity": "critical",
+      "match": {
+        "src_any": true,
+        "dst_any": true
+      }
+    }
+  ]
+}
