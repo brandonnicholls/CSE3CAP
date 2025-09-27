@@ -54,3 +54,9 @@ tools/xlsx_to_csv.py [PATH TO  DESIRED XSLX FIle ] -o [Desired folder for the ne
 
 example:
 tools/xlsx_to_csv.py sample_data/xlsx-files/inside_fw01.xlsx -o sample_data/csv-files
+
+#############################
+#Rules Configuration
+rules.yml = the checklist of risks
+rules_loader.py = the reader that loads and checks it
+
