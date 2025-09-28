@@ -60,3 +60,22 @@ tools/xlsx_to_csv.py sample_data/xlsx-files/inside_fw01.xlsx -o sample_data/csv-
 rules.yml = the checklist of risks
 rules_loader.py = the reader that loads and checks it
 
+### Rules Loader
+- Loads and validates `rules.yml`.
+- Expands sets (ex.., `port_groups.admin_ports`).
+- Normalizes fields (`src.any`, `dst.max_prefix_len`, `service.port_span`,.......).
+- Compiles each rule into a `predicate(rule)` function.
+- Risk Engine only needs to loop over rules × checks and collect findings.
+- No YAML parsing logic should exist in the Risk Engine.
+
+
+### Schemas
+- **Normalized Schema (v0.1)**  (this one is not new but i'm just showing the difference between the 2 so there is no confusion))
+  Input to the Risk Engine.
+  Defines how firewall rules are stored after parsing.
+  See [`docs/schema_normalized_v0.1.md`](docs/schema.md)
+
+- **Findings Schema (v0.1)**
+  Output of the Risk Engine.
+  Defines the structure of findings (used by CSV Writer + PDF Adapter).
+  See [`docs/schema_findings_v0.1.md`](docs/schema_findings_v0.1.md)
