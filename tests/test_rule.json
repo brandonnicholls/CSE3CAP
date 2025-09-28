@@ -1,0 +1,16 @@
+{
+  "vendor": "fortinet",
+  "rule_id": "FW-123",
+  "action": "allow",
+  "direction": "inbound",
+  "src": ["any"],
+  "dst": ["10.0.1.0/24"],
+  "service": {
+    "proto": "tcp",
+    "ports": [22, 443]
+  },
+  "meta": {
+    "policy_name": "Edge-1",
+    "hit_count": 412
+  }
+}
