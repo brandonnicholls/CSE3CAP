@@ -1,0 +1,228 @@
+import os
+from datetime import datetime
+from tkinter import filedialog, messagebox
+import pandas as pd
+from fpdf import FPDF
+import argparse
+import json
+import pandas as pd
+
+
+class ExportManager:
+    """Handles exporting findings data to various formats."""
+    
+    def __init__(self):
+        self.downloads_folder = os.path.join(os.path.expanduser("~"), "Downloads")
+        
+    def get_timestamp(self):
+        """Generate timestamp for unique filenames."""
+        return datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    def export_to_pdf(self, data, filename=None, show_dialog=True):
+        """
+        Export data to PDF format with professional formatting.
+        
+        Args:
+            data: List of dictionaries containing the findings data
+            filename: Optional filename, if None will use timestamp
+            show_dialog: Whether to show file save dialog
+        """
+        try:
+            if show_dialog:
+                filepath = filedialog.asksaveasfilename(
+                    defaultextension=".pdf",
+                    filetypes=[("PDF files", "*.pdf")],
+                    initialdir=self.downloads_folder
+                )
+                if not filepath:
+                    return None
+            else:
+                if filename is None:
+                    filename = f"FireFind_Report_{self.get_timestamp()}.pdf"
+                filepath = os.path.join(self.downloads_folder, filename)
+            
+            # Create PDF
+            pdf = FireFindPDF()
+            pdf.add_page()
+            
+            # Add findings
+            print("DEBUG: First finding looks like:", data[0])
+            if data:
+                pdf.add_findings_table(data)
+            else:
+                pdf.set_font('Helvetica', '', 12)
+                pdf.cell(0, 10, 'No findings to report.', new_x="LMARGIN", new_y="NEXT")
+            
+            # Output PDF
+            pdf.output(filepath)
+            
+            messagebox.showinfo("Export Complete", f"PDF report exported successfully to:\n{filepath}")
+            return filepath
+            
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export PDF:\n{str(e)}")
+            return None
+
+
+class FireFindPDF(FPDF):
+    """Custom PDF class for FireFind reports."""
+    
+    def __init__(self):
+        super().__init__()
+        self.report_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    def header(self):
+        """Add header to each page."""
+        # Try to add FireFind logo if it exists
+        logo_path = "FireFind.png"
+        if os.path.exists(logo_path):
+            self.image(logo_path, x=10, y=8, w=10, h=10)
+        
+        # Title
+        self.set_font('Helvetica', 'B', 20)
+        self.cell(0, 10, 'FireFind Security Report', new_x="LMARGIN", new_y="NEXT", align='C')
+        
+        # Subtitle and timestamp
+        self.set_font('Helvetica', '', 12)
+        self.cell(0, 10, f'Generated on: {self.report_datetime}', new_x="LMARGIN", new_y="NEXT", align='C')
+        self.ln(10)
+    
+    def footer(self):
+        """Add footer to each page."""
+        self.set_y(-15)
+        self.set_font('Helvetica', 'I', 8)
+        self.cell(0, 10, f'Page {self.page_no()}', align='C')
+    
+    def add_findings_table(self, data):
+        """Add findings data as a formatted table."""
+        self.set_font('Helvetica', 'B', 12)
+        self.cell(0, 10, 'Security Findings Summary', new_x="LMARGIN", new_y="NEXT", align='L')
+        self.ln(5)
+        
+        # Count findings by severity
+        severity_counts = {}
+        for finding in data:
+            severity = finding.get('severity', 'Unknown').title()
+            severity_counts[severity] = severity_counts.get(severity, 0) + 1
+        
+        # Add summary
+        self.set_font('Helvetica', '', 10)
+        self.cell(0, 6, f'Total Findings: {len(data)}', new_x="LMARGIN", new_y="NEXT", align='L')
+        for severity, count in sorted(severity_counts.items()):
+            self.cell(0, 6, f'{severity}: {count}', new_x="LMARGIN", new_y="NEXT", align='L')
+        self.ln(5)
+        
+        # Table headers for new schema
+        self.set_font('Helvetica', 'B', 7)
+        headers = ['Rule ID', 'Title', 'Source', 'Destination', 'Service', 'Severity', 'Vendor']
+        page_width = self.w - 20  # leave margins
+        col_widths = [page_width / len(headers)] * len(headers)
+        
+        for i, header in enumerate(headers):
+            self.cell(col_widths[i], 8, header, border=1, align='C')
+        self.ln()
+        
+        # Table data
+        self.set_font('Helvetica', '', 6)
+        for finding in data:
+            # Handle page breaks
+            if self.get_y() > 250:  # Near bottom of page
+                self.add_page()
+                # Repeat headers on new page
+                self.set_font('Helvetica', 'B', 7)
+                for i, header in enumerate(headers):
+                    self.cell(col_widths[i], 8, header, border=1, align='C')
+                self.ln()
+                self.set_font('Helvetica', '', 6)
+            
+            # Extract services for display
+            services = finding.get('services', [])
+            service_display = []
+            for service in services:
+                protocol = service.get('protocol', '')
+                ports = service.get('ports', [])
+                port_ranges = []
+                for port in ports:
+                    port_from = port.get('from')
+                    port_to = port.get('to')
+                    if port_from == port_to:
+                        port_ranges.append(str(port_from))
+                    else:
+                        port_ranges.append(f"{port_from}-{port_to}")
+                
+                if port_ranges:
+                    service_display.append(f"{protocol}/{','.join(port_ranges)}")
+                elif protocol:  # Handle "any" protocol case
+                    service_display.append(protocol)
+            
+            # Handle optional fields that might be null
+            vendor = finding.get('vendor')
+            
+            # Row data for new schema       
+            row_data = [
+                str(finding.get('rule_id', '')),
+                str(finding.get('title', ''))[:30],
+                str(', '.join(finding.get('src_addrs', [])))[:20] if 'src_addrs' in finding else '',
+                str(', '.join(finding.get('dst_addrs', [])))[:20] if 'dst_addrs' in finding else '',
+                str(', '.join(service_display))[:15],
+                str(finding.get('severity', 'Unknown')).capitalize(),
+                str(finding.get('vendor', '')).capitalize()
+            ]
+
+            
+            for i, data_item in enumerate(row_data):
+                self.cell(col_widths[i], 8, data_item, border=1, align='L')
+            self.ln()
+
+def load_findings_from_json(filepath):
+    import json
+    with open(filepath, "r", encoding="utf-8") as f:
+        content = f.read().strip()
+        if not content:
+            raise ValueError(f"JSON file {filepath} is empty.")
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON format in {filepath}: {e}")
+
+def load_findings_from_csv(filepath):
+    df = pd.read_csv(filepath)
+    return df.to_dict(orient="records")
+
+def load_findings_from_jsonl(filepath):
+    """Load findings from a JSONL (JSON Lines) file."""
+    findings = []
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:  # skip empty lines
+                try:
+                    findings.append(json.loads(line))
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Invalid JSON in {filepath}, line: {line}\nError: {e}")
+    return findings
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="FireFind Export Tool")
+    parser.add_argument("input_file", help="Path to input file (JSON or CSV)")
+    parser.add_argument("--format", choices=["csv", "pdf"], default="csv",
+                        help="Export format (csv, pdf)")
+    parser.add_argument("--output", help="Optional output filename")
+    
+    args = parser.parse_args()
+
+# Load input file
+if args.input_file.endswith(".json"):
+    findings = load_findings_from_json(args.input_file)
+elif args.input_file.endswith(".jsonl"):
+    findings = load_findings_from_jsonl(args.input_file)
+elif args.input_file.endswith(".csv"):
+    findings = load_findings_from_csv(args.input_file)
+else:
+    raise ValueError("Unsupported file format. Use .json, .jsonl, or .csv")
+
+exporter = ExportManager()
+if args.format == "csv":
+    exporter.export_to_csv(findings, filename=args.output, show_dialog=False)
+elif args.format == "pdf":
+    exporter.export_to_pdf(findings, filename=args.output, show_dialog=False)
