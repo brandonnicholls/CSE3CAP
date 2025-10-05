@@ -15,7 +15,7 @@ TODO (future): detect disabled rules and fill 'name' when vendors provide it.
 # ---------- helpers
 
 def _clean(s: str) -> str:
-    # Trim spaces and tolerate None (common in spreadsheets)
+    # Trim spaces and tolerate None
     return (s or "").strip()
 
 def _lower(s: str) -> str:
@@ -246,8 +246,10 @@ def to_v01(flat: Dict[str, Any], vendor_hint: Optional[str] = None, svc_map: Opt
             "service": flat.get("service"),
             "action": flat.get("action"),
             "reason": flat.get("reason"),
-            "severity": flat.get("severity"),
+           # "severity": flat.get("severity"),
         },
+
+
         "name": None,  # may be filled by vendor-specific logic later
         "comments": (flat.get("reason") or None),  # reuse "reason" as comments for now
     }

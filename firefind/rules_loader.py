@@ -220,20 +220,24 @@ def get_field(rule: Dict[str, Any], dotted: str) -> Any:
 def enrich_rule(rule: Dict[str, Any]) -> Dict[str, Any]:
     """
     Add extra fields to the firewall rule so the YAML conditions make sense.
-    We keep original src/dst lists in src_list/dst_list,
-    and build new dicts for src/dst info.
+    For v0.1 normalized input, we:
+      - use src_addrs/dst_addrs (fallback to legacy src/dst)
+      - aggregate service facts from the 'services' array into a synthetic 'service' dict:
+          service.any: bool
+          service.port_count: int (number of tcp/udp ranges, not expanded)
+          service.port_span: int (largest contiguous span among ranges; 65535 if 'any' only)
     """
-    r = dict(rule)  # copy
+    r = dict(rule)  # shallow copy
 
-    # keep original lists
-    src_list = r.get("src", [])
-    dst_list = r.get("dst", [])
+    # keep original lists (prefer normalized schema; fallback to legacy keys)
+    src_list = r.get("src_addrs") or r.get("src") or []
+    dst_list = r.get("dst_addrs") or r.get("dst") or []
 
     # compute address info for src and dst
     src_info = _compute_addr_info(src_list)
     dst_info = _compute_addr_info(dst_list)
 
-    # replace src/dst with dicts that carry computed fields
+
     r["src"] = {
         "any": src_info["any"],
         "cidr": src_info["cidrs"],
@@ -246,18 +250,47 @@ def enrich_rule(rule: Dict[str, Any]) -> Dict[str, Any]:
         "is_private": dst_info["has_private"]
     }
 
-    # also keep the original lists for reference
+
     r["src_list"] = src_list
     r["dst_list"] = dst_list
 
-    # service fields
-    svc = r.get("service", {})
-    ports = svc.get("ports", [])
-    ports = _normalize_ports(ports)
-    svc["ports"] = ports
-    svc["any"] = (ports == [] or "*" in ports)
-    svc["port_span"] = _compute_port_span(ports)
-    r["service"] = svc
+    #NEW: aggregate service fields from normalized services array
+    svcs = r.get("services") or []
+    has_any = False
+    port_count = 0          # number of tcp/udp *ranges* (do not expand)
+    span_max = 0            # max contiguous span among ranges
+
+    for s in svcs:
+        proto = (s.get("protocol") or "").lower()
+        if proto == "any":
+            has_any = True
+            continue
+        if proto in ("tcp", "udp"):
+            for rng in (s.get("ports") or []):
+                try:
+                    lo = int(rng.get("from"))
+                    hi = int(rng.get("to"))
+                except Exception:
+                    continue
+                if hi < lo:
+                    lo, hi = hi, lo
+                span = hi - lo
+                if span > span_max:
+                    span_max = span
+                port_count += 1
+        # 'icmp' has no ports; ignore for counts/spans
+
+    # If service is literally ANY (and no explicit ranges), treat span as "wide open"
+    if has_any and port_count == 0:
+        span_max = 65535
+
+    # Synthetic 'service' object for YAML conditions
+    r["service"] = {
+        "any": has_any,
+        "port_count": port_count,
+        "port_span": span_max,
+    }
+    # -------------------------------------------------------------------------------
 
     # logging
     r.setdefault("logging", {})
@@ -269,6 +302,7 @@ def enrich_rule(rule: Dict[str, Any]) -> Dict[str, Any]:
         r["direction"] = "any"
 
     return r
+
 
 
 def _compute_addr_info(items: List[str]) -> Dict[str, Any]:
