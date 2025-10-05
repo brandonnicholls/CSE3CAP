@@ -211,7 +211,17 @@ rules:
     when:
       all:
         - { field: action, op: equals, value: allow }
-        - { field: service.port_span, op: gte, value: 1000 }
+        - any:
+            # 1) Literal ANY service
+            - { field: service.any, op: is_true, value: true }
+            # 2) Very large contiguous span AND not just a single port
+            - all:
+                - { field: service.port_span, op: gte, value: 1024 }
+                - { field: service.port_count, op: gte, value: 2 }
+            # 3) Lots of discrete ranges (tune as needed)
+            - { field: service.port_count, op: gte, value: 10 }
+
+
 
   # Rule 13: High-risk rule without logging enabled
   - id: R-HIGH-RISK-NO-LOG

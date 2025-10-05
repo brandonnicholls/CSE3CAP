@@ -38,10 +38,8 @@ def write_flat_csv(rows: List[dict], path: Path) -> None:
         w = csv.DictWriter(f, fieldnames=cols)
         w.writeheader()
         for r in rows:
-            # fill missing fields with empty strings; severity defaults to "info"
+            # bug fixed ( do not fill severity with info,if not exist leave empty)
             out = {k: r.get(k, "") for k in cols}
-            if not out.get("severity"):
-                out["severity"] = "info"
             w.writerow(out)
 
      #we will use if we end up dealing with multiple vendors this is will help instead of hardcoding
@@ -212,7 +210,7 @@ def parse(path: str, *, sheet: Optional[str] = None, header_scan_rows: int = 15,
         v_svc  = val(c_svc)
         v_act  = val(c_act)
         v_rsn  = val(c_rsn)
-        v_sev  = val(c_sev) or "info"
+        v_sev  = val(c_sev)  # bug fixed removed the follwing: or "info" (leave empty if not there)
 
         # Skip non-rule/banner lines
         if not any([v_rule, v_src, v_dst, v_svc, v_act]):
