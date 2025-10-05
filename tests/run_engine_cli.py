@@ -82,6 +82,18 @@ def main():
     from pprint import pprint
     pprint(findings[:5])
 
+    # 5) Save findings to JSONL for next pipeline stage
+    out_path = "results/findings.jsonl"
+    import os
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        for item in findings:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+    print(f"\n✓ Findings saved to: {out_path}")
+
+
 
 if __name__ == "__main__":
     main()
