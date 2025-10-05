@@ -350,5 +350,6 @@ def main() -> int:
     print(f"✓ Wrote: {out_csv.resolve()}")
     return 0
 
+
 if __name__ == "__main__":
     raise SystemExit(main())
