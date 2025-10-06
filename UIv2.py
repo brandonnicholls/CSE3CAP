@@ -544,6 +544,7 @@ import os
 import csv
 from tkinter import ttk
 import subprocess
+import json
 
 class UI:
     def __init__(self, root):
@@ -772,7 +773,6 @@ class UI:
                     script_dir = os.path.dirname(os.path.abspath(__file__))
                     results_dir = os.path.join(script_dir, "results")
                     json_path = os.path.join(results_dir, f"{name}.rules.v01.jsonl")
-                    csv_path = os.path.join(results_dir, f"{name}.findings.csv")
 
                     # check if JSON was created
                     if os.path.exists(json_path):
@@ -783,8 +783,12 @@ class UI:
                         )
                         # Notify user if risk analysis completed
                         if risk_engine.returncode == 0:
-                            messagebox.showinfo("Risk Analysis Complete", "Risk analysis completed successfully")
                             #TODO: load results into the dashboard page
+                            force_reload = messagebox.askyesno("View Results", "Risk analysis completed successfully. Do you want to view the results now?")
+                            if force_reload:
+                                self.navigate("Results", self.dashboard_screen, push=True)
+                                if os.path.exists("results/findings.jsonl"):
+                                    self.results_screen()
                         else:
                             messagebox.showerror("Risk Engine Error", risk_engine.stderr or "Unknown error.")
 
@@ -796,6 +800,17 @@ class UI:
                     
             except Exception as e:
                 messagebox.showerror("Error", f"Could not process file.\n{str(e)}")
+
+    def load_findings(self, path="results/findings.jsonl"):
+        findings = []
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        findings.append(json.loads(line))
+                    except Exception:
+                        continue
+        return findings
 
     def dashboard_screen(self):
         self.clear_content()
@@ -870,6 +885,7 @@ class UI:
 
     def results_screen(self):
         self.clear_content()
+        self.results_data = self.load_findings("results/findings.jsonl")
         results_frame = tk.Frame(self.content_frame, bg="white")
         results_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
@@ -922,7 +938,7 @@ class UI:
         tk.Button(controls, text="Export", bg="#2ea44f", fg="white", command=export_csv).pack(side="left")
 
         # Treeview
-        cols = ("id", "finding", "src", "dst", "port", "rationale", "severity")
+        cols = ("rule_id", "finding", "source", "destination", "service", "rationale", "severity")
         tree_frame = tk.Frame(results_frame, bg="white")
         tree_frame.pack(fill="both", expand=True)
 
@@ -936,33 +952,21 @@ class UI:
         tree.pack(fill="both", expand=True)
 
         # headings
-        tree.heading("id", text="Rule ID")
+        tree.heading("rule_id", text="Rule ID")
         tree.heading("finding", text="Finding")
-        tree.heading("src", text="Source IP")
-        tree.heading("dst", text="Destination IP")
-        tree.heading("port", text="Service/Port")
+        tree.heading("source", text="Source IP")
+        tree.heading("destination", text="Destination IP")
+        tree.heading("service", text="Service/Port")
         tree.heading("rationale", text="Rationale")
         tree.heading("severity", text="Severity")
 
-        tree.column("id", width=80, anchor="center")
+        tree.column("rule_id", width=80, anchor="center")
         tree.column("finding", width=350, anchor="w")
-        tree.column("src", width=140, anchor="w")
-        tree.column("dst", width=140, anchor="w")
-        tree.column("port", width=100, anchor="center")
+        tree.column("source", width=140, anchor="w")
+        tree.column("destination", width=140, anchor="w")
+        tree.column("service", width=100, anchor="center")
         tree.column("rationale", width=200, anchor="w")
         tree.column("severity", width=80, anchor="center")
-
-        # sample data (replace with parsed real results later)
-        if not hasattr(self, "results_data"):
-            self.results_data = [
-                {"id":"R-001", "finding":"Exposed RDP Port to Internet", "src":"0.0.0.0/0 (Any)", "dst":"10.0.2.20", "port":"3389/tcp", "rationale":"RDP exposed to internet", "severity":"High"},
-                {"id":"R-002", "finding":"Permissive 'Any-Any' Rule Detected", "src":"0.0.0.0/0 (Any)", "dst":"0.0.0.0/0 (Any)", "port":"Any", "rationale":"Allow-any source/dest", "severity":"High"},
-                {"id":"R-003", "finding":"Inbound SSH from any source", "src":"0.0.0.0/0 (Any)", "dst":"192.168.1.100", "port":"22/tcp", "rationale":"SSH open to internet", "severity":"High"},
-                {"id":"R-004", "finding":"Insecure Protocol Allowed(Telnet)", "src":"10.0.1.0/24", "dst":"192.168.1.155", "port":"23/tcp", "rationale":"Telnet allowed", "severity":"Medium"},
-                {"id":"R-005", "finding":"Shadowed Rule (Effectively Disabled)", "src":"203.0.113.10", "dst":"10.0.10.25", "port":"443/tcp", "rationale":"Shadowed by earlier deny", "severity":"Low"},
-                {"id":"R-006", "finding":"Exposed Database Port to Internet", "src":"0.0.0.0/0 (Any)", "dst":"10.0.5.30", "port":"3306/tcp", "rationale":"MySQL exposed", "severity":"High"},
-                {"id":"R-007", "finding":"Unrestricted Outbound Access from Server", "src":"10.0.5.50", "dst":"0.0.0.0/0 (Any)", "port":"Any", "rationale":"Unrestricted outbound", "severity":"Medium"},
-            ]
 
         # helpers for filtering & populating
         def unique_ips(field):
@@ -997,7 +1001,18 @@ class UI:
         def populate_tree(items):
             tree.delete(*tree.get_children())
             for r in items:
-                tree.insert("", "end", values=(r.get("id"), r.get("finding"), r.get("src"), r.get("dst"), r.get("port"), r.get("rationale"), r.get("severity")))
+                tree.insert(
+                    "", "end",
+                    values=(
+                        r.get("rule_id"),
+                        r.get("title"),
+                        r.get("src_addrs"),
+                        r.get("dst_addrs"),
+                        r.get("services"),
+                        r.get("reason"),
+                        r.get("severity"),
+                    )
+                )
 
         def apply_filters():
             populate_tree(filtered_data())
