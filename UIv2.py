@@ -431,6 +431,11 @@ class UI:
         tree.column("rationale", width=200, anchor="w")
         tree.column("severity", width=80, anchor="center")
 
+        # configure tags for coloring
+        tree.tag_configure("high", foreground="#dc2626")    # Red
+        tree.tag_configure("medium", foreground="#f59e42")  # Orange
+        tree.tag_configure("low", foreground="#a3b83b")     # Green/Yellow
+
         # helpers for filtering & populating
         def unique_ips(field):
             vals = sorted({r.get(field, "") for r in self.results_data})
@@ -464,6 +469,15 @@ class UI:
         def populate_tree(items):
             tree.delete(*tree.get_children())
             for r in items:
+                sev = str(r.get("severity", "")).lower()
+                if sev == "high":
+                    tag = "high"
+                elif sev == "medium":
+                    tag = "medium"
+                elif sev == "low":
+                    tag = "low"
+                else:
+                    tag = ""
                 tree.insert(
                     "", "end",
                     values=(
@@ -474,7 +488,8 @@ class UI:
                         r.get("services"),
                         r.get("reason"),
                         r.get("severity"),
-                    )
+                    ),
+                    tags=(tag,)
                 )
 
         def apply_filters():
