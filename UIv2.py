@@ -277,15 +277,28 @@ class UI:
 
     def dashboard_screen(self):
         self.clear_content()
+        self.results_data = self.load_findings("results/findings.jsonl")
         dashboard_frame = tk.Frame(self.content_frame, bg="white")
         dashboard_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Count of findings by severity from self.results_data
+        if self.results_data:
+            high_count = sum(1 for r in self.results_data if str(r.get("severity","")).lower() == "high")
+            medium_count = sum(1 for r in self.results_data if str(r.get("severity","")).lower() == "medium")
+            low_count = sum(1 for r in self.results_data if str(r.get("severity","")).lower() == "low")
+            total_count = high_count + medium_count + low_count
+        else:
+            high_count = 0
+            medium_count = 0
+            low_count = 0
+            total_count = 0
+
         # Tiles 
         tile_data = [
-            ("Total Rules", "10,000", "#2563eb", "#1e40af"),
-            ("High-Risk Rules", "250", "#dc2626", "#991b1b"),
-            ("Medium-Risk Rules", "200", "#f59e42", "#b45309"),
-            ("Low-Risk Rules", "50", "#a3b83b", "#64741a"),
+            ("High-Risk Rules", high_count, "#dc2626", "#991b1b"),
+            ("Medium-Risk Rules", medium_count, "#f59e42", "#b45309"),
+            ("Low-Risk Rules", low_count, "#a3b83b", "#64741a"),
+            ("Total Rules", total_count, "#2563eb", "#1e40af")
         ]
         tiles_frame = tk.Frame(dashboard_frame, bg="white")
         tiles_frame.pack(pady=30)
@@ -299,35 +312,62 @@ class UI:
             inner = tk.Frame(tile, bg=color)
             inner.pack(expand=True, fill="both", padx=8, pady=8)
             lbl = tk.Label(inner, text=label, font=("Arial", 13, "bold"), bg=color, fg="white")
-            lbl.pack(anchor="nw", padx=10, pady=(10, 0))
+            lbl.pack(anchor="n", padx=10, pady=(10, 0))
             val = tk.Label(inner, text=value, font=("Arial", 22, "bold"), bg=color, fg="white")
-            val.pack(anchor="nw", padx=10, pady=(0, 10))
+            val.pack(anchor="s", padx=10, pady=(0, 10))
 
-        # Donut Chart
+        # Donut Chart (fit to 600x400 canvas)
         chart_frame = tk.Frame(dashboard_frame, bg="white")
         chart_frame.pack(pady=10)
-        canvas = tk.Canvas(chart_frame, width=300, height=200, bg="white", highlightthickness=0)
+
+        canvas_w, canvas_h = 600, 400
+        canvas = tk.Canvas(chart_frame, width=canvas_w, height=canvas_h, bg="white", highlightthickness=0)
         canvas.pack()
-        # Donut chart data
+
+        # compute counts (ensure keys match your findings)
+        if self.results_data:
+            high_count = sum(1 for r in self.results_data if str(r.get("severity", "")).strip().lower() == "high")
+            medium_count = sum(1 for r in self.results_data if str(r.get("severity", "")).strip().lower() == "medium")
+            low_count = sum(1 for r in self.results_data if str(r.get("severity", "")).strip().lower() == "low")
+        else:
+            high_count = medium_count = low_count = 0
+
         chart_data = [
-            (250, "#dc2626", "High Risk"),
-            (200, "#f59e42", "Medium Risk"),
-            (50, "#a3b83b", "Low Risk"),
-            (9500, "#2563eb", "No Risk"),
+            (high_count, "#dc2626", "High Risk"),
+            (medium_count, "#f59e42", "Medium Risk"),
+            (low_count, "#a3b83b", "Low Risk")
         ]
-        total = sum([d[0] for d in chart_data])
-        start = 90
-        for value, color, label in chart_data:
-            extent = (value / total) * 360
-            canvas.create_arc(30, 10, 190, 170, start=start, extent=extent, fill=color, outline="")
-            # Place label (approximate)
-            mid_angle = start + extent / 2
-            x = 110 + 90 * 0.7 * math.cos(math.radians(-mid_angle))  
-            y = 90 + 80 * 0.7 * math.sin(math.radians(-mid_angle))   
-            canvas.create_text(x, y, text=f"{label}", fill=color, font=("Arial", 9, "bold"))
-            start += extent
-        # Donut hole
-        canvas.create_oval(70, 50, 150, 130, fill="white", outline="white")
+
+        total_count = sum(v for v, *_ in chart_data)
+
+        if total_count == 0:
+            canvas.create_text(canvas_w/2, canvas_h/2, text="No firewall data", fill="#666", font=("Arial", 14, "bold"))
+        else:
+            # layout using full canvas
+            cx, cy = canvas_w / 2.0, canvas_h / 2.0
+            margin = 24
+            outer_r = min(canvas_w, canvas_h) / 2.0 - margin   # outer radius
+            bbox = (cx - outer_r, cy - outer_r, cx + outer_r, cy + outer_r)
+
+            start = 90.0
+            for value, color, label in chart_data:
+                if value <= 0:
+                    continue
+                extent = (value / total_count) * 360.0
+                if extent >= 360.0:
+                    extent = 359.999
+                canvas.create_arc(*bbox, start=start, extent=extent, fill=color, outline=color)
+                # label placement along slice mid-angle
+                mid_angle = start + extent / 2.0
+                label_r = outer_r * 0.62
+                lx = cx + label_r * math.cos(math.radians(-mid_angle))
+                ly = cy + label_r * math.sin(math.radians(-mid_angle))
+                start += extent
+
+            # donut hole (center)
+            hole_r = outer_r * 0.45
+            hole_bbox = (cx - hole_r, cy - hole_r, cx + hole_r, cy + hole_r)
+            canvas.create_oval(*hole_bbox, fill="white", outline="white")
 
         # Table
         table_frame = tk.Frame(dashboard_frame, bg="white")
