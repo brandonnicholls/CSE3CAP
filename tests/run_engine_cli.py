@@ -7,6 +7,8 @@
 import sys, json, pathlib
 from typing import List, Dict, Any
 from firefind.risk_engine import run_engine
+import os, csv
+
 
 def read_normalized(path_str: str) -> List[Dict[str, Any]]:
     """
@@ -52,7 +54,8 @@ def main():
         sys.exit(1)
 
     src_path = sys.argv[1]
-    rules_path = sys.argv[2] if len(sys.argv) > 2 else "docs/rules.yml"
+    rules_path = sys.argv[2] if (len(sys.argv) > 2 and not sys.argv[2].startswith("--")) else "docs/rules.yml"
+
 
     # 1) read real normalized rules from disk
     normalized = read_normalized(src_path)
@@ -92,6 +95,53 @@ def main():
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
     print(f"\n✓ Findings saved to: {out_path}")
+
+    # 6)CSV export of findings if --csv is provided
+    # Usage:
+    #   python -m tests.run_engine_cli <file_or_folder> [rules.yml] --csv [out_dir]
+    if "--csv" in sys.argv:
+        out_dir = pathlib.Path("results")
+        i = sys.argv.index("--csv")
+        if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("-"):
+            out_dir = pathlib.Path(sys.argv[i + 1])
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Name CSV after the input (file stem or folder name)
+        src_name = pathlib.Path(src_path).name
+        stem = pathlib.Path(src_path).stem if pathlib.Path(src_path).is_file() else src_name
+        out_csv = out_dir / f"{stem}.analysis.csv"
+
+        cols = [
+            "client","source_file","vendor","rule_id",
+            "check_id","title","severity",
+            "reason","recommendation","labels",
+            "src","dst","service","action"
+        ]
+        with out_csv.open("w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=cols)
+            w.writeheader()
+            for fnd in findings:
+                # best-effort service summary
+                svcs = fnd.get("services", [])
+                svc_str = " ".join([s.get("protocol","any") for s in svcs if isinstance(s, dict)])
+                w.writerow({
+                    "client":        os.getenv("FIREFIND_CLIENT",""),
+                    "source_file":   src_name,
+                    "vendor":        fnd.get("vendor",""),
+                    "rule_id":       fnd.get("rule_id",""),
+                    "check_id":      fnd.get("check_id",""),
+                    "title":         fnd.get("title",""),
+                    "severity":      fnd.get("severity",""),
+                    "reason":        fnd.get("reason",""),
+                    "recommendation":fnd.get("recommendation",""),
+                    "labels":        ",".join(fnd.get("labels",[])),
+                    "src":           " ".join(fnd.get("src_addrs",[])),
+                    "dst":           " ".join(fnd.get("dst_addrs",[])),
+                    "service":       svc_str,
+                    "action":        fnd.get("action",""),
+                })
+        print(f"✓ Findings CSV saved to: {out_csv}")
+
 
 
 

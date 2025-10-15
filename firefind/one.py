@@ -102,13 +102,27 @@ def _nk(s: str) -> str:
 
 # candidates we look for across messy headers
 CANDIDATES = {
-    "rule_id": {"rule","ruleid","id","no","number","name"},
-    "src": {"source","sources"},
-    "dst": {"destination","destinations","destination/s"},
-    "service": {"service","services","servicesapplications","services&applications"},
-    "action": {"action","actions"},
-    "reason": {"comment","comments","remark","remarks","reason","notes","description"},
-    "severity": {"severity","risk","priority"},
+    "rule_id": {
+        "rule","ruleid","id","no","number","name","policyid","policy","uuid"
+    },
+    "src": {
+        "source","sources","src","srcaddr","srcaddress","sourceaddress"
+    },
+    "dst": {
+        "destination","destinations","destination/s","dst","dstaddr","dstaddress","destinationaddress"
+    },
+    "service": {
+        "service","services","servicesapplications","services&applications"
+    },
+    "action": {
+        "action","actions"
+    },
+    "reason": {
+        "comment","comments","remark","remarks","reason","notes","description"
+    },
+    "severity": {
+        "severity","risk","priority"
+    },
 }
 
 def _score_header_row(row_vals: List[str]) -> Tuple[int, Dict[str,int]]:
