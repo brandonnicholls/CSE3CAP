@@ -1,6 +1,6 @@
 ###Risk Engine###
 
-#What it does#
+#What is does?#
 Loads risk checks from docs/rules.yml (via rules_loader).
 Runs those checks against normalized firewall rules (*.v01.jsonl from the parser).
 Produces a list of findings in the agreed schema (docs/schema_findings_v0.1.md).
@@ -20,3 +20,5 @@ If you want full findings, edit the runner to dump them into results/findings.de
 #Output format#
 Findings are already in the schema v0.1 (rule_id, check_id, severity, title, reason, src/dst, services, .....).
 Engine only returns the findings in memory.
+
+NEW csv findings for analysts simply add --csv

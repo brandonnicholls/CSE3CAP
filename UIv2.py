@@ -543,8 +543,13 @@ import math
 import os
 import csv
 from tkinter import ttk
-import subprocess
 import json
+import sys
+import runpy
+import importlib
+import io
+import contextlib
+from importlib import import_module
 
 class UI:
     def __init__(self, root):
@@ -559,7 +564,7 @@ class UI:
         self.active_command = None
         self.nav_buttons = {}
         self.history = []                # <-- add navigation history stack
-
+        self.last_json_path = None       # <-- store last processed JSON path
         # Settings state (in-memory)
         self.high_risk_ports = [
             {"port": 22, "enabled": tk.BooleanVar(value=True)},
@@ -710,7 +715,7 @@ class UI:
         self.selected_file = tk.StringVar()
 
         def choose_file():
-            file_path = fd.askopenfilename(filetypes=[("CSV files", "*.csv"), ("Excel files", "*.xlsx")])
+            file_path = fd.askopenfilename(filetypes=[("CSV/Excel files", "*.csv *xlsx"), ("Excel files", "*.xlsx")])
             if file_path:
                 self.selected_file.set(file_path)
 
@@ -758,45 +763,38 @@ class UI:
                         "The selected file exceeds the 10 MB size limit. Please choose a smaller file."
                     )
                     return
-
                 # Call firefind.one normalizer CLI
-                normalizer = subprocess.run(
-                    ['python', '-m', 'firefind.one', file_path, '--auto', '--json-v01'],
-                    capture_output=True, text=True
-                )
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                results_dir = os.path.join(script_dir, "results")
 
-                # If successful, proceed to feed to risk engine
-                if normalizer.returncode == 0:
-                    # retrieve the output JSON file location
+                rc, out, err = run_module_in_process("firefind.one", [file_path, "--auto", "-o", results_dir, "--json-v01"], script_dir)
+                print("firefind.one rc:", rc)
+                print(out)
+                print(err)
+                if rc == 0:
+                    # proceed same as before: find json_path and run risk engine (either in-process or run_module_in_process)
                     base_name = os.path.basename(file_path)
                     name, _ = os.path.splitext(base_name)
                     script_dir = os.path.dirname(os.path.abspath(__file__))
                     results_dir = os.path.join(script_dir, "results")
                     json_path = os.path.join(results_dir, f"{name}.rules.v01.jsonl")
-
+                    self.last_json_path = json_path  # store for later use by results screen / export
                     # check if JSON was created
                     if os.path.exists(json_path):
                         # Call risk engine CLI
-                        risk_engine = subprocess.run(
-                            ['python', '-m', 'tests.run_engine_cli', json_path],
-                            capture_output=True, text=True
-                        )
-                        # Notify user if risk analysis completed
-                        if risk_engine.returncode == 0:
-                            #TODO: load results into the dashboard page
-                            force_reload = messagebox.askyesno("View Results", "Risk analysis completed successfully. Do you want to view the results now?")
-                            if force_reload:
-                                self.navigate("Results", self.dashboard_screen, push=True)
-                                if os.path.exists("results/findings.jsonl"):
-                                    self.results_screen()
-                        else:
-                            messagebox.showerror("Risk Engine Error", risk_engine.stderr or "Unknown error.")
-
+                        rc, out, err = run_module_in_process("tests.run_engine_cli", [json_path], script_dir)
+                        print("tests.run_engine_cli:", rc)
+                        print(out)
+                        print(err)
                     else:
                         messagebox.showwarning("Output Missing", f"File processed but output JSON {json_path} not found.")
 
+                elif rc == 2:
+                    messagebox.showerror("FireFind Error", "File type not supported. Please upload a CSV or XLSX file.")
+                elif rc == 3:
+                    messagebox.showerror("FireFind Error", "No rules parsed from the file. Please check the file format and content.")
                 else:
-                    messagebox.showerror("FireFind Error", normalizer.stderr or "Unknown error.")
+                    messagebox.showerror("FireFind Error", err or out or "Unknown error.")
                     
             except Exception as e:
                 messagebox.showerror("Error", f"Could not process file.\n{str(e)}")
@@ -960,22 +958,50 @@ class UI:
         dst_menu = ttk.Combobox(controls, textvariable=dst_var, values=["Any"], width=12, state="readonly")
         dst_menu.pack(side="left", padx=(0,8))
 
-        # Export button
+        # CSV export button
         def export_csv():
-            path = fd.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files","*.csv")])
-            if not path:
-                return
+            script_dir = os.path.dirname(os.path.abspath(__file__))
             try:
-                with open(path, "w", newline="", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["Rule ID","Finding","Source IP","Destination IP","Service/Port","Rationale","Severity"])
-                    for r in filtered_data():
-                        writer.writerow([r.get("id"), r.get("finding"), r.get("src"), r.get("dst"), r.get("port"), r.get("rationale",""), r.get("severity","")])
-                messagebox.showinfo("Exported", f"Results exported to {path}")
-            except Exception as e:
-                messagebox.showerror("Export error", str(e))
+                # use last json path produced by upload flow
+                if not getattr(self, "last_json_path", None):
+                    messagebox.showwarning("No results", "No processed results available. Please upload and process a file first.")
+                    return
+                json_path = self.last_json_path
+                if not os.path.exists(json_path):
+                    messagebox.showwarning("Missing file", f"Results file not found:\n{json_path}")
+                    return
 
-        tk.Button(controls, text="Export", bg="#2ea44f", fg="white", command=export_csv).pack(side="left")
+                # call export manager module in-process
+                rc, out, err = run_module_in_process("tests.run_engine_cli", [json_path, "--csv"], script_dir)
+                if rc != 0:
+                    raise RuntimeError(err or out)
+            except Exception as ex:
+                messagebox.showerror("Export error", str(ex))
+
+        tk.Button(controls, text="Export CSV", bg="#2ea44f", fg="white", command=export_csv).pack(side="left")
+        tk.Label(controls, text=" ", bg="white").pack(side="left", padx=(4,0))  # spacer
+
+        # PDF export button
+        def export_pdf():
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            try:
+                # use last json path produced by upload flow
+                if not getattr(self, "last_json_path", None):
+                    messagebox.showwarning("No results", "No processed results available. Please upload and process a file first.")
+                    return
+                json_path = self.last_json_path
+                if not os.path.exists(json_path):
+                    messagebox.showwarning("Missing file", f"Results file not found:\n{json_path}")
+                    return
+
+                # call export manager module in-process
+                rc, out, err = run_module_in_process("firefind.export_manager", [json_path, "--out", "results\\firefind_report.pdf"], script_dir)
+                if rc != 0:
+                    raise RuntimeError(err or out)
+            except Exception as ex:
+                messagebox.showerror("Export error", str(ex))
+
+        tk.Button(controls, text="Export PDF", bg="#2ea44f", fg="white", command=export_pdf).pack(side="left")
 
         # Treeview
         cols = ("rule_id", "finding", "source", "destination", "service", "rationale", "severity")
@@ -1168,6 +1194,61 @@ class UI:
         tk.Label(row2, text="Flag Broad Source Ranges", bg="white", font=("Arial", 12)).pack(side="left")
         tk.Checkbutton(row2, variable=self.flag_broad_source, bg="white").pack(side="right")
 
+def run_module_in_process(module_name: str, argv: list[str], project_dir: str):
+    """
+    Run a module in-process as if `python -m module_name argv...`.
+    Returns (returncode, stdout, stderr).
+    """
+    old_argv = sys.argv[:]
+    old_cwd = os.getcwd()
+    old_path = sys.path[:]
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+    try:
+        # ensure project root is importable
+        if project_dir not in sys.path:
+            sys.path.insert(0, project_dir)
+        # set argv for the module
+        sys.argv = [module_name] + list(argv)
+        os.chdir(project_dir)
+        # prefer calling module.main if available to allow nicer APIs
+        try:
+            mod = importlib.import_module(module_name)
+            with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+                if hasattr(mod, "main") and callable(mod.main):
+                    # module should read sys.argv (we set it above). prefer calling main() with no args.
+                    try:
+                        mod.main()
+                    except TypeError:
+                        # fallback attempts if main expects an argv param
+                        try:
+                            mod.main(list(argv))
+                        except TypeError:
+                            try:
+                                mod.main(*argv)
+                            except Exception:
+                                raise
+                else:
+                    # fallback: run module as __main__
+                    runpy.run_module(module_name, run_name="__main__")
+            return 0, stdout_buf.getvalue(), stderr_buf.getvalue()
+        except Exception:
+             # if import failed or main raised, try run_module to get traceback
+            stderr_buf.write("Exception while running module:\n")
+            import traceback
+            traceback.print_exc(file=stderr_buf)
+             # attempt runpy.run_module as last resort to execute module top-level
+            try:
+                with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+                     runpy.run_module(module_name, run_name="__main__")
+                return 0, stdout_buf.getvalue(), stderr_buf.getvalue()
+            except Exception:
+                return 1, stdout_buf.getvalue(), stderr_buf.getvalue()
+    finally:
+        # restore environment
+        sys.argv = old_argv
+        os.chdir(old_cwd)
+        sys.path = old_path
 
 # create the main application window
 if __name__ == "__main__":

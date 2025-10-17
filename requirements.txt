@@ -3,3 +3,4 @@ pytest
 jsonschema
 pandas
 pyyaml
+fpdf2
