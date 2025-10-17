@@ -102,13 +102,27 @@ def _nk(s: str) -> str:
 
 # candidates we look for across messy headers
 CANDIDATES = {
-    "rule_id": {"rule","ruleid","id","no","number","name"},
-    "src": {"source","sources"},
-    "dst": {"destination","destinations","destination/s"},
-    "service": {"service","services","servicesapplications","services&applications"},
-    "action": {"action","actions"},
-    "reason": {"comment","comments","remark","remarks","reason","notes","description"},
-    "severity": {"severity","risk","priority"},
+    "rule_id": {
+        "rule","ruleid","id","no","number","name","policyid","policy","uuid"
+    },
+    "src": {
+        "source","sources","src","srcaddr","srcaddress","sourceaddress"
+    },
+    "dst": {
+        "destination","destinations","destination/s","dst","dstaddr","dstaddress","destinationaddress"
+    },
+    "service": {
+        "service","services","servicesapplications","services&applications"
+    },
+    "action": {
+        "action","actions"
+    },
+    "reason": {
+        "comment","comments","remark","remarks","reason","notes","description"
+    },
+    "severity": {
+        "severity","risk","priority"
+    },
 }
 
 def _score_header_row(row_vals: List[str]) -> Tuple[int, Dict[str,int]]:
@@ -339,15 +353,14 @@ def main() -> int:
         with v01_path.open("w", encoding="utf-8") as f:
             for r in rules:
                 f.write(json_dumps(to_v01(r, vendor_hint)) + "\n")
-        print(f"✓ Wrote: {v01_path.resolve()}")
+        #print(f"✓ Wrote: {v01_path.resolve()}")
 
 
     # Flat CSV (simple view; risk engine is not involved here)
     out_csv = out_dir / f"{in_file.stem}.findings.csv"
     write_flat_csv(rules, out_csv)
-    print(f"✓ Wrote: {out_csv.resolve()}")
+    #print(f"✓ Wrote: {out_csv.resolve()}")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
