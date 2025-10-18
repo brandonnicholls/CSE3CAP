@@ -565,6 +565,12 @@ class UI:
         self.nav_buttons = {}
         self.history = []                # <-- add navigation history stack
         self.last_json_path = None       # <-- store last processed JSON path
+
+        # icons will be created after widgets exist (see create_widgets)
+        self.icon_high = None
+        self.icon_medium = None
+        self.icon_low = None
+
         # Settings state (in-memory)
         self.high_risk_ports = [
             {"port": 22, "enabled": tk.BooleanVar(value=True)},
@@ -638,6 +644,29 @@ class UI:
         self.content_frame = tk.Frame(self.root, bg="white")
         self.content_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         self.content_frame.pack_propagate(False)
+
+        # create small colored circle icons for severity (now that content_frame exists)
+        def _make_circle(color, size=14):
+            img = tk.PhotoImage(width=size, height=size)
+            bg = self.content_frame.cget("bg") or "white"
+            r = (size // 2) - 1
+            cx = size / 2 - 0.5
+            cy = size / 2 - 0.5
+            for y in range(size):
+                row = []
+                for x in range(size):
+                    dx = x - cx
+                    dy = y - cy
+                    if dx*dx + dy*dy <= r*r:
+                        row.append(color)
+                    else:
+                        row.append(bg)
+                img.put("{" + " ".join(row) + "}", to=(0, y))
+            return img
+
+        self.icon_high = _make_circle("#dc2626")
+        self.icon_medium = _make_circle("#f59e42")
+        self.icon_low = _make_circle("#a3b83b")
 
         # Set default page
         self.on_nav_click("Dashboard", self.dashboard_screen)
@@ -783,6 +812,10 @@ class UI:
                     if os.path.exists(json_path):
                         # Call risk engine CLI
                         rc, out, err = run_module_in_process("tests.run_engine_cli", [json_path], script_dir)
+                        if rc == 0:
+                            # when user clicks no, stay on upload screen
+                            if messagebox.askyesno("View Results", "File processed successfully. Would you like to view the results?"):
+                                self.navigate("Results", self.results_screen)
                         print("tests.run_engine_cli:", rc)
                         print(out)
                         print(err)
@@ -973,6 +1006,8 @@ class UI:
 
                 # call export manager module in-process
                 rc, out, err = run_module_in_process("tests.run_engine_cli", [json_path, "--csv"], script_dir)
+                if rc == 0:
+                    messagebox.showinfo("Export Complete", "Results exported to results/firefind_results.csv")
                 if rc != 0:
                     raise RuntimeError(err or out)
             except Exception as ex:
@@ -996,6 +1031,8 @@ class UI:
 
                 # call export manager module in-process
                 rc, out, err = run_module_in_process("firefind.export_manager", [json_path, "--out", "results\\firefind_report.pdf"], script_dir)
+                if rc == 0:
+                    messagebox.showinfo("Export Complete", "Report exported to results/firefind_report.pdf")
                 if rc != 0:
                     raise RuntimeError(err or out)
             except Exception as ex:
@@ -1010,7 +1047,8 @@ class UI:
 
         yscroll = tk.Scrollbar(tree_frame, orient="vertical")
         xscroll = tk.Scrollbar(tree_frame, orient="horizontal")
-        tree = ttk.Treeview(tree_frame, columns=cols, show="headings", yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+        # show the tree column (#0) so we can display an icon there
+        tree = ttk.Treeview(tree_frame, columns=cols, show="tree headings", yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
         yscroll.config(command=tree.yview)
         xscroll.config(command=tree.xview)
         yscroll.pack(side="right", fill="y")
@@ -1018,13 +1056,16 @@ class UI:
         tree.pack(fill="both", expand=True)
 
         # headings
+        # use the tree column (#0) as the Severity column so we can show image + text together
+        tree.heading("#0", text="Severity")
+        tree.column("#0", width=120, anchor="center")
+
         tree.heading("rule_id", text="Rule ID")
         tree.heading("finding", text="Finding")
         tree.heading("source", text="Source IP")
         tree.heading("destination", text="Destination IP")
         tree.heading("service", text="Service/Port")
         tree.heading("rationale", text="Rationale")
-        tree.heading("severity", text="Severity")
 
         tree.column("rule_id", width=80, anchor="center")
         tree.column("finding", width=350, anchor="w")
@@ -1032,7 +1073,6 @@ class UI:
         tree.column("destination", width=140, anchor="w")
         tree.column("service", width=100, anchor="center")
         tree.column("rationale", width=200, anchor="w")
-        tree.column("severity", width=80, anchor="center")
 
         # configure tags for coloring (keep text black by default)
         tree.tag_configure("normal", foreground="#000000")  # black text for all rows
@@ -1069,15 +1109,26 @@ class UI:
 
         def populate_tree(items):
             tree.delete(*tree.get_children())
-            # emoji map gives colored dot while text stays black
-            sev_emoji = {"high": "🔴", "medium": "🟠", "low": "🟢"}
             for r in items:
                 sev = str(r.get("severity", "")).lower()
-                emoji = sev_emoji.get(sev, "")
-                sev_text = (sev.capitalize() if sev else "")
-                sev_display = f"{emoji} {sev_text}".strip()
+                if sev == "high":
+                    icon = self.icon_high
+                    sev_text = "High"
+                elif sev == "medium":
+                    icon = self.icon_medium
+                    sev_text = "Medium"
+                elif sev == "low":
+                    icon = self.icon_low
+                    sev_text = "Low"
+                else:
+                    icon = None
+                    sev_text = ""
+
+                # insert severity as the tree column text (text + image), keep other fields in 'values'
                 tree.insert(
                     "", "end",
+                    image=icon,
+                    text=sev_text,
                     values=(
                         r.get("rule_id"),
                         r.get("title"),
@@ -1085,7 +1136,6 @@ class UI:
                         r.get("dst_addrs"),
                         r.get("services"),
                         r.get("reason"),
-                        sev_display,
                     ),
                     tags=("normal",)
                 )
