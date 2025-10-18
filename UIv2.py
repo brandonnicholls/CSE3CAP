@@ -27,7 +27,6 @@ class UI:
         self.active_command = None
         self.nav_buttons = {}
         self.history = []                # <-- add navigation history stack
-        self.last_json_path = None       # <-- store last processed JSON path
         self.last_file_name = None       # <-- store last uploaded file name
 
         # icons will be created after widgets exist (see create_widgets)
@@ -465,13 +464,13 @@ class UI:
                 if not getattr(self, "last_json_path", None):
                     messagebox.showwarning("No results", "No processed results available. Please upload and process a file first.")
                     return
-                json_path = self.last_json_path
-                if not os.path.exists(json_path):
-                    messagebox.showwarning("Missing file", f"Results file not found:\n{json_path}")
+                findings_path = "results/findings.jsonl"
+                if not os.path.exists(findings_path):
+                    messagebox.showwarning("Missing file", f"Results file not found:\n{findings_path}")
                     return
 
                 # call export manager module in-process
-                rc, out, err = run_module_in_process("tests.run_engine_cli", [json_path, "--csv"], script_dir)
+                rc, out, err = run_module_in_process("tests.run_engine_cli", [findings_path, "--csv"], script_dir)
                 if rc == 0:
                     messagebox.showinfo("Export Complete", f"Results exported to {script_dir}\\results\\{file_name}firefind_report.pdf")
                 if rc != 0:
@@ -491,13 +490,13 @@ class UI:
                 if not getattr(self, "last_json_path", None):
                     messagebox.showwarning("No results", "No processed results available. Please upload and process a file first.")
                     return
-                json_path = self.last_json_path
-                if not os.path.exists(json_path):
-                    messagebox.showwarning("Missing file", f"Results file not found:\n{json_path}")
+                findings_path = "results/findings.jsonl"
+                if not os.path.exists(findings_path):
+                    messagebox.showwarning("Missing file", f"Results file not found:\n{findings_path}")
                     return
 
                 # call export manager module in-process
-                rc, out, err = run_module_in_process("firefind.export_manager", [json_path, "--out", f"results\\{file_name}.pdf"], script_dir)
+                rc, out, err = run_module_in_process("firefind.export_manager", [findings_path, "--out", f"results\\{file_name}.pdf"], script_dir)
                 if rc == 0:
                     messagebox.showinfo("Export Complete", f"Report exported to {script_dir}\\results\\{file_name}firefind_report.pdf")
                 if rc != 0:
