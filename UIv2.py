@@ -28,6 +28,7 @@ class UI:
         self.nav_buttons = {}
         self.history = []                # <-- add navigation history stack
         self.last_json_path = None       # <-- store last processed JSON path
+        self.last_file_name = None       # <-- store last uploaded file name
 
         # icons will be created after widgets exist (see create_widgets)
         self.icon_high = None
@@ -267,6 +268,7 @@ class UI:
                     # proceed same as before: find json_path and run risk engine (either in-process or run_module_in_process)
                     base_name = os.path.basename(file_path)
                     name, _ = os.path.splitext(base_name)
+                    self.last_file_name = base_name  # store for later use by results screen / export
                     script_dir = os.path.dirname(os.path.abspath(__file__))
                     results_dir = os.path.join(script_dir, "results")
                     json_path = os.path.join(results_dir, f"{name}.rules.v01.jsonl")
@@ -355,7 +357,7 @@ class UI:
         canvas = tk.Canvas(chart_frame, width=canvas_w, height=canvas_h, bg="white", highlightthickness=0)
         canvas.pack()
 
-        # compute counts (ensure keys match your findings)
+        # Prepare chart data
         if self.results_data:
             high_count = sum(1 for r in self.results_data if str(r.get("severity", "")).strip().lower() == "high")
             medium_count = sum(1 for r in self.results_data if str(r.get("severity", "")).strip().lower() == "medium")
@@ -456,6 +458,7 @@ class UI:
 
         # CSV export button
         def export_csv():
+            file_name = self.last_file_name
             script_dir = os.path.dirname(os.path.abspath(__file__))
             try:
                 # use last json path produced by upload flow
@@ -470,7 +473,7 @@ class UI:
                 # call export manager module in-process
                 rc, out, err = run_module_in_process("tests.run_engine_cli", [json_path, "--csv"], script_dir)
                 if rc == 0:
-                    messagebox.showinfo("Export Complete", "Results exported to results/firefind_results.csv")
+                    messagebox.showinfo("Export Complete", f"Results exported to {script_dir}\\results\\{file_name}firefind_report.pdf")
                 if rc != 0:
                     raise RuntimeError(err or out)
             except Exception as ex:
@@ -481,6 +484,7 @@ class UI:
 
         # PDF export button
         def export_pdf():
+            file_name = self.last_file_name
             script_dir = os.path.dirname(os.path.abspath(__file__))
             try:
                 # use last json path produced by upload flow
@@ -493,9 +497,9 @@ class UI:
                     return
 
                 # call export manager module in-process
-                rc, out, err = run_module_in_process("firefind.export_manager", [json_path, "--out", "results\\firefind_report.pdf"], script_dir)
+                rc, out, err = run_module_in_process("firefind.export_manager", [json_path, "--out", f"results\\{file_name}.pdf"], script_dir)
                 if rc == 0:
-                    messagebox.showinfo("Export Complete", "Report exported to results/firefind_report.pdf")
+                    messagebox.showinfo("Export Complete", f"Report exported to {script_dir}\\results\\{file_name}firefind_report.pdf")
                 if rc != 0:
                     raise RuntimeError(err or out)
             except Exception as ex:
@@ -504,7 +508,8 @@ class UI:
         tk.Button(controls, text="Export PDF", bg="#2ea44f", fg="white", command=export_pdf).pack(side="left")
 
         # Treeview
-        cols = ("rule_id", "finding", "source", "destination", "service", "rationale", "severity")
+        # split service into protocol and ports columns
+        cols = ("rule_id", "finding", "source", "destination", "protocol", "ports", "rationale")
         tree_frame = tk.Frame(results_frame, bg="white")
         tree_frame.pack(fill="both", expand=True)
 
@@ -527,14 +532,16 @@ class UI:
         tree.heading("finding", text="Finding")
         tree.heading("source", text="Source IP")
         tree.heading("destination", text="Destination IP")
-        tree.heading("service", text="Service/Port")
+        tree.heading("protocol", text="Protocol")
+        tree.heading("ports", text="Ports")
         tree.heading("rationale", text="Rationale")
 
         tree.column("rule_id", width=80, anchor="center")
         tree.column("finding", width=350, anchor="w")
         tree.column("source", width=140, anchor="w")
         tree.column("destination", width=140, anchor="w")
-        tree.column("service", width=100, anchor="center")
+        tree.column("protocol", width=120, anchor="center")
+        tree.column("ports", width=140, anchor="center")
         tree.column("rationale", width=200, anchor="w")
 
         # configure tags for coloring (keep text black by default)
@@ -572,6 +579,106 @@ class UI:
 
         def populate_tree(items):
             tree.delete(*tree.get_children())
+
+            def format_service_parts(rec):
+                """Return (protocol_display, ports_display) from record's services field.
+                   - strip any stray braces/brackets from port strings
+                   - convert ranges where from==to to a single port (e.g. 80)
+                """
+                def clean_port_token(tok):
+                    s = str(tok).strip()
+                    # remove surrounding braces/brackets/quotes if present
+                    if s.startswith("{") and s.endswith("}"):
+                        s = s[1:-1].strip()
+                    if s.startswith("[") and s.endswith("]"):
+                        s = s[1:-1].strip()
+                    s = s.strip("\"' ")
+                    return s
+
+                proto_set = []
+                ports_tokens = []
+
+                services = rec.get("services") or rec.get("service") or rec.get("service_ports") or []
+                if isinstance(services, dict):
+                    services = [services]
+                if not isinstance(services, (list, tuple)):
+                    services = []
+
+                for svc in services:
+                    if isinstance(svc, str):
+                        # string like "tcp/80" or "dhcp-request"
+                        proto_set.append(svc)
+                        continue
+                    if not isinstance(svc, dict):
+                        continue
+
+                    proto = (svc.get("protocol") or svc.get("proto") or "").lower()
+                    proto = proto if proto and proto != "any" else "any"
+
+                    # handle explicit range keys
+                    if "from" in svc and "to" in svc:
+                        try:
+                            f = int(svc.get("from"))
+                            t = int(svc.get("to"))
+                            if f == t:
+                                ports_tokens.append(str(f))
+                            else:
+                                ports_tokens.append(f"{f}-{t}")
+                        except Exception:
+                            # fallback to string cleanup
+                            ports_tokens.append(clean_port_token(f"{svc.get('from')}-{svc.get('to')}"))
+                        proto_set.append(proto)
+                        continue
+
+                    ports = svc.get("ports")
+                    if ports is None:
+                        p = svc.get("port")
+                        if p is not None:
+                            ports = [p]
+
+                    # normalize various port representations
+                    if isinstance(ports, (list, tuple)):
+                        if not ports:
+                            ports_tokens.append("any")
+                        else:
+                            for p in ports:
+                                if isinstance(p, dict) and "from" in p and "to" in p:
+                                    try:
+                                        f = int(p.get("from"))
+                                        t = int(p.get("to"))
+                                        ports_tokens.append(str(f) if f == t else f"{f}-{t}")
+                                    except Exception:
+                                        ports_tokens.append(clean_port_token(p))
+                                else:
+                                    ports_tokens.append(clean_port_token(p))
+                    elif isinstance(ports, (int, str)):
+                        ports_tokens.append(clean_port_token(ports))
+                    else:
+                        ports_tokens.append("any")
+
+                    proto_set.append(proto)
+
+                # deduplicate while preserving order
+                proto_list = [p for p in dict.fromkeys(proto_set) if p]
+                ports_list = [p for p in dict.fromkeys(ports_tokens) if p]
+
+                proto_display = ", ".join(proto_list) if proto_list else ""
+                ports_display = ", ".join(ports_list) if ports_list else ""
+
+                # present 'any' nicely
+                if not ports_display or ports_display == "any":
+                    ports_display = "any"
+
+                return proto_display, ports_display
+
+            def join_addrs(val):
+                if isinstance(val, (list, tuple)):
+                    return ", ".join(str(x) for x in val)
+                if isinstance(val, str):
+                    # raw newline-separated values in raw.src/dst may exist; show as comma list
+                    return ", ".join(line.strip() for line in val.splitlines() if line.strip())
+                return ""
+
             for r in items:
                 sev = str(r.get("severity", "")).lower()
                 if sev == "high":
@@ -587,18 +694,23 @@ class UI:
                     icon = None
                     sev_text = ""
 
-                # insert severity as the tree column text (text + image), keep other fields in 'values'
+                proto_display, ports_display = format_service_parts(r)
+
+                src_display = join_addrs(r.get("src") or r.get("src_addrs") or r.get("raw", {}).get("src", ""))
+                dst_display = join_addrs(r.get("dst") or r.get("dst_addrs") or r.get("raw", {}).get("dst", ""))
+
                 tree.insert(
                     "", "end",
                     image=icon,
                     text=sev_text,
                     values=(
                         r.get("rule_id"),
-                        r.get("title"),
-                        r.get("src_addrs"),
-                        r.get("dst_addrs"),
-                        r.get("services"),
-                        r.get("reason"),
+                        r.get("name") or r.get("title") or r.get("raw", {}).get("rule_id") or "",
+                        src_display,
+                        dst_display,
+                        proto_display,
+                        ports_display,
+                        r.get("reason") or r.get("rationale") or r.get("raw", {}).get("reason") or "",
                     ),
                     tags=("normal",)
                 )
