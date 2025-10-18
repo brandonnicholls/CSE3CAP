@@ -1034,10 +1034,8 @@ class UI:
         tree.column("rationale", width=200, anchor="w")
         tree.column("severity", width=80, anchor="center")
 
-        # configure tags for coloring
-        tree.tag_configure("high", foreground="#dc2626")    # Red
-        tree.tag_configure("medium", foreground="#f59e42")  # Orange
-        tree.tag_configure("low", foreground="#a3b83b")     # Green/Yellow
+        # configure tags for coloring (keep text black by default)
+        tree.tag_configure("normal", foreground="#000000")  # black text for all rows
 
         # helpers for filtering & populating
         def unique_ips(field):
@@ -1071,16 +1069,13 @@ class UI:
 
         def populate_tree(items):
             tree.delete(*tree.get_children())
+            # emoji map gives colored dot while text stays black
+            sev_emoji = {"high": "🔴", "medium": "🟠", "low": "🟢"}
             for r in items:
                 sev = str(r.get("severity", "")).lower()
-                if sev == "high":
-                    tag = "high"
-                elif sev == "medium":
-                    tag = "medium"
-                elif sev == "low":
-                    tag = "low"
-                else:
-                    tag = ""
+                emoji = sev_emoji.get(sev, "")
+                sev_text = (sev.capitalize() if sev else "")
+                sev_display = f"{emoji} {sev_text}".strip()
                 tree.insert(
                     "", "end",
                     values=(
@@ -1090,9 +1085,9 @@ class UI:
                         r.get("dst_addrs"),
                         r.get("services"),
                         r.get("reason"),
-                        r.get("severity"),
+                        sev_display,
                     ),
-                    tags=(tag,)
+                    tags=("normal",)
                 )
 
         def apply_filters():
