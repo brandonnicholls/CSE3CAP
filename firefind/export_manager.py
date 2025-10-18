@@ -482,10 +482,28 @@ class FireFindPDF(FPDF):
                 # border box for the entire cell (expands vertically)
                 self.rect(x_cell, y_cell, w, row_h)
 
+                # If this is the Severity column, set text color based on severity
+                # headers = ['Rule ID', 'Title', 'Source', 'Destination', 'Service', 'Severity', 'Vendor']
+                if i == 5:  # Severity column index
+                    sev_val = str(finding.get('severity', '')).strip().lower()
+                    if sev_val == "high":
+                        self.set_text_color(220, 38, 38)      # red
+                    elif sev_val == "medium":
+                        self.set_text_color(245, 158, 66)     # orange
+                    elif sev_val == "low":
+                        self.set_text_color(163, 184, 59)     # green
+                    else:
+                        self.set_text_color(0, 0, 0)          # default black
+                else:
+                    self.set_text_color(0, 0, 0)              # black for other columns
+
                 # write each wrapped line inside with small padding
                 for j, ln in enumerate(lines):
                     self.set_xy(x_cell + 2, y_cell + j * line_h + 1)
                     self.multi_cell(w - 4, line_h, self._safe_ascii(ln), border=0, align='L')
+
+                # restore black text color after the severity cell (or after each cell)
+                self.set_text_color(0, 0, 0)
 
             # 6) move cursor to the next row (same left, y + row height)
             self.set_xy(x_left, y_top + row_h)
