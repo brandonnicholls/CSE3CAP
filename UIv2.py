@@ -207,7 +207,7 @@ class UI:
         self.selected_file = tk.StringVar()
 
         def choose_file():
-            file_path = fd.askopenfilename(filetypes=[("CSV/Excel files", "*.csv *xlsx"), ("Excel files", "*.xlsx")])
+            file_path = fd.askopenfilename(filetypes=[("CSV/Excel files", "*.csv *xlsx")])
             if file_path:
                 self.selected_file.set(file_path)
 
@@ -259,7 +259,7 @@ class UI:
                 script_dir = os.path.dirname(os.path.abspath(__file__))
                 results_dir = os.path.join(script_dir, "results")
 
-                rc, out, err = run_module_in_process("firefind.one", [file_path, "--auto", "-o", results_dir, "--json-v01"], script_dir)
+                rc, out, err = run_module_in_process("firefind.one", [file_path, "--auto", "--out", results_dir, "--json-v01"], script_dir)
                 print("firefind.one rc:", rc)
                 print(out)
                 print(err)
@@ -458,21 +458,23 @@ class UI:
         # CSV export button
         def export_csv():
             file_name = self.last_file_name
+            file_name = os.path.splitext(file_name)[0]
+            print(file_name)
             script_dir = os.path.dirname(os.path.abspath(__file__))
             try:
                 # use last json path produced by upload flow
                 if not getattr(self, "last_json_path", None):
                     messagebox.showwarning("No results", "No processed results available. Please upload and process a file first.")
                     return
-                findings_path = "results/findings.jsonl"
-                if not os.path.exists(findings_path):
-                    messagebox.showwarning("Missing file", f"Results file not found:\n{findings_path}")
+                json_path = self.last_json_path
+                if not os.path.exists(json_path):
+                    messagebox.showwarning("Missing file", f"JSON file not found:\n{json_path}")
                     return
 
                 # call export manager module in-process
-                rc, out, err = run_module_in_process("tests.run_engine_cli", [findings_path, "--csv"], script_dir)
+                rc, out, err = run_module_in_process("tests.run_engine_cli", [json_path, "--csv"], script_dir)
                 if rc == 0:
-                    messagebox.showinfo("Export Complete", f"Results exported to {script_dir}\\results\\{file_name}firefind_report.pdf")
+                    messagebox.showinfo("Export Complete", f"Results exported to {script_dir}\\results\\{file_name}.rules.v01.analysis.csv")
                 if rc != 0:
                     raise RuntimeError(err or out)
             except Exception as ex:
@@ -498,7 +500,7 @@ class UI:
                 # call export manager module in-process
                 rc, out, err = run_module_in_process("firefind.export_manager", [findings_path, "--out", f"results\\{file_name}.pdf"], script_dir)
                 if rc == 0:
-                    messagebox.showinfo("Export Complete", f"Report exported to {script_dir}\\results\\{file_name}firefind_report.pdf")
+                    messagebox.showinfo("Export Complete", f"Report exported to {script_dir}\\results\\{file_name}.pdf")
                 if rc != 0:
                     raise RuntimeError(err or out)
             except Exception as ex:
