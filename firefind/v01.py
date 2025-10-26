@@ -12,7 +12,7 @@ Notes: this is intentionally simple; vendor-specific refinements can be added la
 TODO (future): detect disabled rules and fill 'name' when vendors provide it.
 """
 
-# ---------- helpers
+#  helpers
 
 def _clean(s: str) -> str:
     # Trim spaces and tolerate None
@@ -23,12 +23,12 @@ def _lower(s: str) -> str:
     return _clean(s).lower()
 
 def _split_multi(s: str) -> List[str]:
-    """Split on newlines/semicolons/commas and drop empties."""
-    # Some exports cram multiple values into one cell with \n, ;, or ,
     if not s:
         return []
-    parts = re.split(r"[\n;,]+", str(s))
+    parts = re.split(r"[\n;,]+", str(s))  # ← NO spaces here
     return [p.strip() for p in parts if p and p.strip()]
+
+
 
 def _strip_group_prefix(s: str) -> str:
     # Example: "Group Member (2): 10.1.1.0/24" → "10.1.1.0/24"
@@ -39,26 +39,73 @@ def _strip_label_prefixes(s: str) -> str:
     return re.sub(r"^(FQDN:|IP/Netmask:\s*)", "", s, flags=re.IGNORECASE)
 
 def _norm_addrs(field: Any) -> List[str]:
-    # Normalize src/dst into a list; empty means "any" (explicit default)
     s = _clean(str(field))
     if not s:
         return ["any"]
+
+    s = re.sub(r"\s+address\s+", "\n", s, flags=re.IGNORECASE)
     s = _strip_group_prefix(s)
     items = _split_multi(s)
     items = [_strip_label_prefixes(x) for x in items]
-    return items or ["any"]
+    items = [ "any" if _lower(x) == "all" else x for x in items ]
+    items = [ x for x in items if _lower(x) != "address" ]
 
-# ---------- action/vendor normalization
+    def maybe_split_obj_like(token: str) -> List[str]:
+        token = token.strip()
+        if " " not in token:
+            return [token]
+
+        parts = token.split()
+
+        # NEW: if the *first* part is object-like (has '_' or '-'),
+        # split into [first_part, rest_preserved]
+        if ("_" in parts[0]) or ("-" in parts[0]):
+            rest = " ".join(parts[1:]).strip()
+            return [parts[0]] + ([rest] if rest else [])
+
+        # Existing conservative split: only split when *all* parts look object-like
+        if all(("_" in p) or ("-" in p) for p in parts):
+            return parts
+
+        return [token]
+
+    exploded = []
+    for it in items:
+        exploded.extend(maybe_split_obj_like(it))
+
+    return exploded or ["any"]
+
+
+
+
+
+
+
+# action/vendor normalization
 
 # Collapse vendor action verbs into a compact set we use everywhere
 _ACTION_MAP = {
+    # allow-equivalent
     "accept": "allow",
     "allow": "allow",
     "permit": "allow",
+    "enable": "allow",
+    "enabled": "allow",
+    "https": "allow",
+    "http": "allow",
+    "ssh": "allow",
+    "rdp": "allow",
+    "any": "allow",
+
+    # deny-equivalent
     "drop": "drop",
     "deny": "deny",
-    "reject": "reject",
+    "blocked": "deny",
+    "reject": "deny",
+
+    # fallback stays "other"
 }
+
 
 def _norm_action(a: Any) -> str:
     # Unrecognized actions become "other" so they’re visible in QA later
@@ -70,7 +117,7 @@ def _norm_vendor(vendor_hint: Optional[str], flat_vendor: Any) -> str:
     v = (_lower(flat_vendor) or _lower(vendor_hint) or "unknown")
     return v
 
-# ---------- service parsing
+#  service parsing
 
 # Alias map: common names seen in real exports. Not exhaustive on purpose.
 # Maps token -> list[(protocol, from_port, to_port)]. ICMP has no ports.
@@ -90,6 +137,8 @@ _ALIAS: Dict[str, List[Tuple[str, Optional[int], Optional[int]]]] = {
     "remote_desktop_protocol": [("tcp", 3389, 3389)],
     "ms-sql-server": [("tcp", 1433, 1433)],
     "mssql":    [("tcp", 1433, 1433)],
+
+    # name bundles
     "dns":      [("udp", 53, 53), ("tcp", 53, 53)],
     "dns_":     [("udp", 53, 53), ("tcp", 53, 53)],
     "kerberos": [("udp", 88, 88), ("tcp", 88, 88)],
@@ -99,16 +148,73 @@ _ALIAS: Dict[str, List[Tuple[str, Optional[int], Optional[int]]]] = {
     "microsoft-ds": [("tcp", 445, 445)],
     "tcp_135":  [("tcp", 135, 135)],
     "tcp_445":  [("tcp", 445, 445)],
+
     # ICMP-ish
     "icmp":           [("icmp", None, None)],
     "icmp-comms":     [("icmp", None, None)],
     "echo-request":   [("icmp", None, None)],
     "echo-reply":     [("icmp", None, None)],
+    "ping":           [("icmp", None, None)],
+
     # NetBIOS shorthand sometimes appears as "NBT_"
     "nbt_":      [("udp", 137, 137), ("tcp", 139, 139)],
+
     # seen on a few sheets
     "syslog":    [("udp", 514, 514), ("tcp", 514, 514)],
     "shell":     [("tcp", 514, 514)],  # historic name for a TCP service
+
+    # vendor UI strings we observed
+    "microsoft remote desktop [rdp]": [("tcp", 3389, 3389)],
+    "microsoft terminal services [rdp]": [("tcp", 3389, 3389)],
+    "microsoft terminal services [udp]": [("udp", 3389, 3389)],
+    "grp_terminal_services": [("tcp", 3389, 3389), ("udp", 3389, 3389)],
+    "grp_netbios": [
+        ("udp", 137, 137), ("udp", 138, 138),
+        ("tcp", 139, 139), ("tcp", 445, 445)
+    ],
+    "grp_ad_connectivity": [
+        ("tcp", 88, 88), ("udp", 88, 88),
+        ("tcp", 389, 389), ("tcp", 636, 636),
+        ("tcp", 445, 445), ("udp", 123, 123)
+    ],
+    "windows ad": [
+        ("tcp", 389, 389), ("tcp", 445, 445),
+        ("tcp", 88, 88),  ("udp", 88, 88)
+    ],
+    "grp_http": [("tcp", 80, 80), ("tcp", 443, 443)],
+    r"grp_http\\s": [("tcp", 80, 80), ("tcp", 443, 443)],
+
+    # citrix / workspace
+    "citrix ica": [("tcp", 1494, 1494)],
+    "tcp_1494": [("tcp", 1494, 1494)],
+    "tcp_2598": [("tcp", 2598, 2598)],
+    "udp_2598": [("udp", 2598, 2598)],
+    "udp_16500-16509": [("udp", 16500, 16509)],
+
+    # monitoring / mgmt bits we saw
+    "snmp": [("udp", 161, 161)],
+    "snmp-traps": [("udp", 162, 162)],
+    "tcp_541": [("tcp", 541, 541)],
+
+    # ldap variants
+    "ldap": [("tcp", 389, 389)],
+    "ldap_ssl": [("tcp", 636, 636)],
+    "ldap-ssl": [("tcp", 636, 636)],
+    "ldap_udp": [("udp", 389, 389)],
+
+    # misc one-offs in the data
+    "tcp_4505-4506": [("tcp", 4505, 4506)],
+    "udp_6559": [("udp", 6559, 6559)],
+    "tcp_3007-3008": [("tcp", 3007, 3008)],
+    "tcp_8006-8007": [("tcp", 8006, 8007)],
+    "tcp_30175": [("tcp", 30175, 30175)],
+    "tcp_8530": [("tcp", 8530, 8530)],
+    "tcp_8531": [("tcp", 8531, 8531)],
+    "tcp_54443": [("tcp", 54443, 54443)],   # added
+    "tcp_10004": [("tcp", 10004, 10004)],
+    "tcp_15000": [("tcp", 15000, 15000)],
+    "grp_sccm-server-ports": [("tcp", 8530, 8530), ("tcp", 8531, 8531)],
+    "tcp_5556": [("tcp", 5556, 5556)],
 }
 
 # Regex patterns for the common service string formats we encountered
@@ -148,7 +254,7 @@ def _from_alias(tok: str) -> List[Tuple[str, Optional[int], Optional[int]]]:
     return _ALIAS.get(tok, [])
 
 def _parse_token(tok: str, out: List[Dict[str, Any]]):
-    # Parse a single token (e.g., "dns", "tcp_443") and update 'out' via _add
+    # Parse a single token (etc "dns", "tcp_443") and update 'out' via _add
     t = _lower(tok)
     if not t:
         return
@@ -178,14 +284,14 @@ def _parse_token(tok: str, out: List[Dict[str, Any]]):
         _add(out, proto, lo, hi)
         return
 
-    # 4) Single port with protocol (e.g., udp53, tcp_8162)
+    # 4) Single port with protocol ( udp53, tcp_8162)
     m = _RE_PROTO_NUM.match(t2)
     if m:
         proto, p = m.group(1).lower(), int(m.group(2))
         _add(out, proto, p, p)
         return
 
-    # 5) Embedded protocol/ports (e.g., VPN_TCP-10000, PIX_8490-tcp)
+    # 5) Embedded protocol/ports ( VPN_TCP-10000, PIX_8490-tcp)
     m = _RE_EMBEDDED.search(t)
     if m:
         proto, lo, hi = m.group(1).lower(), int(m.group(2)), m.group(3)
@@ -195,23 +301,28 @@ def _parse_token(tok: str, out: List[Dict[str, Any]]):
     # 6) If nothing matched, we leave it. Caller will decide about "any".
 
 def _services_from_field(svc_field: Any) -> List[Dict[str, Any]]:
-    # High-level: split the cell → parse tokens → sort ranges for stability
     raw = _clean(str(svc_field))
+    # Convert alpha/alpha slashes to commas so "HTTP/HTTPS" -> "HTTP,HTTPS"
+    raw = re.sub(r'(?i)\b([a-z][a-z0-9_\-+]*)\s*/\s*([a-z][a-z0-9_\-+]*)\b', r'\1,\2', raw)
+
     tokens = _split_multi(raw)
+
+    if len(tokens) <= 1 and (" " in raw):
+        tokens = [t for t in raw.split() if t.strip()]
+
     services: List[Dict[str, Any]] = []
     for tok in tokens or []:
         _parse_token(tok, services)
 
-    # If we recognized nothing at all, default to 'any'
     if not services:
         return [{"protocol": "any", "ports": []}]
 
-    # Deterministic ordering (useful for tests and diffs)
     for s in services:
         s["ports"] = sorted(s["ports"], key=lambda r: (r["from"], r["to"]))
-
-    # Note: if an alias like 'dns' added both tcp/udp 53, we keep both
     return services
+
+
+
 
 # ---------- public API
 

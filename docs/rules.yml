@@ -1,235 +1,275 @@
-# FireFind Risk Rules (v0.1)
-# This file lists the rules we want FireFind to check for.
-# The idea is: firewall configs get normalized → these rules decide what looks risky.
-# Anyone can edit this file to add/remove/change rules without touching the code.
-
-version: 0.1
-meta:
-  name: "FireFind Baseline Rules"
-  updated: "2025-09-24"
-  owner: "Triskele Labs / FireFind Team"
-
-# Severity levels we’ll use when flagging problems
-severity_scale: [low, medium, high, critical]
-
-# Groups of ports or networks we’ll re-use across multiple rules
+# --- NEW / UPDATED SETS ---
 sets:
   port_groups:
-    # Common admin ports that attackers often target
     admin_ports: [22,23,3389,5900,5985,5986,445,135,139,20,21]
-    # Old/clear-text protocols that aren’t secure
-    insecure_cleartext: [23,20,21,69,110,143]   # telnet, ftp, tftp, pop3, imap
-    # Web ports (some could be admin panels depending on context)
+    insecure_cleartext: [23,20,21,69,110,143]
+    windows_admin: [135,137,139,445]
     web_like: [80,443,8080,8443]
-  cidr_groups:
-    # Represents “anywhere” in IPv4 or IPv6
-    any: ["0.0.0.0/0","::/0"]
+  addr_names:
+    # Treat these names as “internet-like” (no CIDR in export)
+    internet_like: ["any","all","All_Internet","WAN-DAAS_21","EWAN-DAAS_408","WAN_21","EWAN-FW_408","EXT-PRD-VL0", "Any","ANY","Internet","INTERNET","External","EXTERNAL","Public","PUBLIC","Outside","OUTSIDE","0.0.0.0/0","::/0","WAN","WAN-EDGE","WAN_CORE"]
+    # Example internal/corp buckets if you want to scope later
+    internal_like: ["CLIENT1DEV_79","CLIENT1_AllNets","CLIENT1_Nets","IN-PROD-VL0","Inter-FWL-VLAN4","PROD-DEV1","Transit_1010"]
+    transit_or_core_like: [ "Core","Core_Switch","Core_Net","Backbone","Transit","Transit_1010","MPLS_Core","DC_Core","Distribution","Internal_Servers" ]
+    user_or_workstation_like: [ "Internal_Net","LAN","Users_Net","Workstations","Staff_WiFi","Branch_LAN","HQ_LAN" ]
 
-# Default settings for reports
-defaults:
-  # Columns that will show up in the CSV output
-  report_columns: [rule_id, vendor, action, direction, src, dst, service, severity, rationale]
-  # If we know about custom service names, we can list them here so they aren’t flagged as “unknown”
-  unknown_service_name_patterns: []
 
+# --- REPLACE rule references to CIDRs/DIRECTION with name overlaps ---
 rules:
 
-  # Rule 1: Flag any rule that is wide open (any to any with any service)
+  # Allow any-any-any (works for name-based exports)
   - id: R-ALLOW-ANY-ANY-ANY
     name: "Allow any↔any with any service"
     severity: critical
-    rationale: "This basically allows everything through, no restrictions at all."
+    rationale: "This type of rule removes all protection by allowing any source, any destination, and any service. It’s often left over from troubleshooting and creates total exposure."
+    recommendation: "Remove this rule entirely. Create specific rules for required applications or temporarily allow traffic only for approved maintenance."
     when:
       all:
         - { field: action, op: equals, value: allow }
-        - any:
-            - { field: src.any, op: is_true, value: true }
-            - { field: src.cidr, op: contains, value: "0.0.0.0/0" }
-            - { field: src.cidr, op: contains, value: "::/0" }
-        - any:
-            - { field: dst.any, op: is_true, value: true }
-            - { field: dst.cidr, op: contains, value: "0.0.0.0/0" }
-            - { field: dst.cidr, op: contains, value: "::/0" }
+        - { field: src_addrs, op: overlaps, value: [ "any" ] }
+        - { field: dst_addrs, op: overlaps, value: [ "any" ] }
         - { field: service.any, op: is_true, value: true }
 
-  # Rule 2: Any to any, but only for specific services (still very broad)
-  - id: R-ALLOW-ANY-ANY-SOME
-    name: "Allow any↔any with specific service"
-    severity: high
-    rationale: "Even if ports are limited, any→any is still too open."
-    when:
-      all:
-        - { field: action, op: equals, value: allow }
-        - any:
-            - { field: src.any, op: is_true, value: true }
-            - { field: src.cidr, op: contains, value: "0.0.0.0/0" }
-            - { field: src.cidr, op: contains, value: "::/0" }
-        - any:
-            - { field: dst.any, op: is_true, value: true }
-            - { field: dst.cidr, op: contains, value: "0.0.0.0/0" }
-            - { field: dst.cidr, op: contains, value: "::/0" }
-        - any:
-            - { field: service.any, op: is_false, value: true }
-            - { field: service.ports, op: contains, value: "*" }
 
-  # Rule 3: Inbound rules that expose admin ports to the world
-  - id: R-INBOUND-ADMIN-OPEN
-    name: "Inbound admin ports exposed"
+
+
+  # Admin ports exposed (no 'direction', so just key off internet-like)
+  - id: R-ADMIN-OPEN
+    name: "Admin ports exposed to/from internet-like"
     severity: critical
-    rationale: "Remote admin ports should never be open to everyone."
+    rationale: "Administrative services like RDP, SSH, and WinRM should never be directly reachable from untrusted networks. Attackers routinely scan for these ports."
+    recommendation: "Limit access to admin ports through a VPN or jump host. Allow only trusted IPs, enforce MFA, and enable logging and lockout policies."
     when:
       all:
         - { field: action, op: equals, value: allow }
         - any:
-            - { field: direction, op: equals, value: inbound }
-            - { field: direction, op: equals, value: any }
-        - any:
-            - { field: src.any, op: is_true, value: true }
-            - { field: src.cidr, op: contains, value: "0.0.0.0/0" }
-            - { field: src.cidr, op: contains, value: "::/0" }
+            - { field: src_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+            - { field: dst_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
         - { field: service.ports, op: overlaps_range, value: { set_ref: port_groups.admin_ports } }
 
-  # Rule 4: Clear-text protocols (like Telnet, FTP, POP3) from anywhere
   - id: R-INSECURE-CLEARTEXT
-    name: "Insecure clear-text protocols allowed from any"
+    name: "Insecure clear-text protocols allowed broadly"
     severity: high
-    rationale: "Using old protocols without encryption is dangerous if exposed broadly."
+    rationale: "Clear-text protocols send usernames and passwords without encryption, allowing attackers to capture credentials or data in transit."
+    recommendation: "Replace Telnet/FTP/POP3/IMAP with secure equivalents (SSH, SFTP, IMAPS, POP3S). Disable legacy services entirely where possible."
     when:
       all:
         - { field: action, op: equals, value: allow }
         - any:
-            - { field: src.any, op: is_true, value: true }
-            - { field: src.cidr, op: contains, value: "0.0.0.0/0" }
-            - { field: src.cidr, op: contains, value: "::/0" }
-        - { field: service.ports, op: overlaps_range, value: { set_ref: port_groups.insecure_cleartext } }
+            # internet-like
+            - { field: src_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+            - { field: dst_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+            # broaden to user↔core/transit
+            - all:
+                - { field: src_addrs, op: overlaps, value: { set_ref: addr_names.transit_or_core_like } }
+                - { field: dst_addrs, op: overlaps, value: { set_ref: addr_names.user_or_workstation_like } }
+            - all:
+                - { field: dst_addrs, op: overlaps, value: { set_ref: addr_names.transit_or_core_like } }
+                - { field: src_addrs, op: overlaps, value: { set_ref: addr_names.user_or_workstation_like } }
 
-  # Rule 5: Catch very broad network ranges like /0–/8
-  - id: R-OVERBROAD-NETS
-    name: "Over-broad CIDR ranges"
+        - any:
+            # NUMERIC port check (engine-friendly)
+            - service:
+                ports:
+                  any:
+                    in: [ 20,21,23,69,110,143,161,162,512,513,514 ]
+            # Named services fallback
+            - { field: raw.service, op: ilike_any, value: [ "ftp","tftp","telnet","rlogin","rsh","pop3","imap","snmp" ] }
+
+
+  - id: R-WINDOWS-ADMIN
+    name: "Windows admin services exposed"
     severity: high
-    rationale: "Huge address ranges mean almost no restriction."
+    rationale: "Windows administrative ports (135, 137, 139, 445) enable remote file and printer sharing. When reachable between networks they allow lateral movement or ransomware spread."
+    recommendation: "Restrict or block these ports between VLANs. Keep SMB only inside internal management zones and enable SMB signing."
     when:
       all:
         - { field: action, op: equals, value: allow }
+        - { field: service.any, op: is_false, value: true }   # <— add this
         - any:
-            - { field: src.max_prefix_len, op: lte, value: 8 }
-            - { field: dst.max_prefix_len, op: lte, value: 8 }
+            - { field: src_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+            - { field: dst_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+        - any:
+            - { field: service.ports, op: overlaps_range, value: [ 135,135 ] }
+            - { field: service.ports, op: overlaps_range, value: [ 137,137 ] }
+            - { field: service.ports, op: overlaps_range, value: [ 139,139 ] }
+            - { field: service.ports, op: overlaps_range, value: [ 445,445 ] }
 
-  # Rule 6: Flag services we couldn’t identify properly
-  - id: R-UNKNOWN-SERVICE
-    name: "Unknown or opaque service"
-    severity: medium
-    rationale: "If we don’t know what the service is, we can’t judge it safely."
-    when:
-      all:
-        - { builtin: unknown_service }
 
-  # Rule 7: Rules that allow traffic both ways (A→B and B→A)
-  - id: R-RECIPROCAL
-    name: "Reciprocal allow rules"
-    severity: medium
-    rationale: "Two-way access is often unnecessary and risky."
-    when:
-      all:
-        - { builtin: reciprocal }
-
-  # Rule 8: Inbound web ports (HTTP/HTTPS) but to broad destinations
-  - id: R-INBOUND-WEB-BROAD
-    name: "Inbound web to broad/non-scoped destinations"
-    severity: medium
-    rationale: "Web access is normal, but shouldn’t be open to everything."
-    when:
-      all:
-        - { field: action, op: equals, value: allow }
-        - any:
-            - { field: direction, op: equals, value: inbound }
-            - { field: direction, op: equals, value: any }
-        - { field: service.ports, op: overlaps_range, value: { set_ref: port_groups.web_like } }
-        - any:
-            - { field: dst.any, op: is_true, value: true }
-            - { field: dst.max_prefix_len, op: lte, value: 16 }
-
-  # Rule 9: Outbound any-to-any (bad for data exfiltration)
-  - id: R-OUTBOUND-ANY-ANY-ANY
-    name: "Outbound any↔any with any service"
-    severity: high
-    rationale: "Wide open outbound traffic makes data leaks hard to spot."
-    when:
-      all:
-        - { field: action, op: equals, value: allow }
-        - any:
-            - { field: direction, op: equals, value: outbound }
-            - { field: direction, op: equals, value: any }
-        - any:
-            - { field: src.any, op: is_true, value: true }
-            - { field: src.cidr, op: contains, value: "0.0.0.0/0" }
-            - { field: src.cidr, op: contains, value: "::/0" }
-        - any:
-            - { field: dst.any, op: is_true, value: true }
-            - { field: dst.cidr, op: contains, value: "0.0.0.0/0" }
-            - { field: dst.cidr, op: contains, value: "::/0" }
-        - { field: service.any, op: is_true, value: true }
-
-  # Rule 10: Admin ports open to private/internal networks
-  - id: R-INBOUND-ADMIN-TO-PRIVATE
-    name: "Inbound admin to private ranges"
+  - id: R-RDP-EXPOSED
+    name: "RDP allowed broadly"
     severity: critical
-    rationale: "Remote admin should be locked down, even to private ranges."
+    rationale: "RDP is heavily targeted for brute-force and exploit attacks. Broad exposure allows direct access to internal desktops or servers."
+    recommendation: "Publish RDP only through VPN or a secure gateway. Require Network Level Authentication and strong passwords; disable external RDP if not essential."
     when:
       all:
         - { field: action, op: equals, value: allow }
+        - { field: service.any, op: is_false, value: true }   # <— add this
         - any:
-            - { field: direction, op: equals, value: inbound }
-            - { field: direction, op: equals, value: any }
-        - any:
-            - { field: src.any, op: is_true, value: true }
-            - { field: src.cidr, op: contains, value: "0.0.0.0/0" }
-            - { field: src.cidr, op: contains, value: "::/0" }
-        - { field: dst.is_private, op: is_true, value: true }
-        - { field: service.ports, op: overlaps_range, value: { set_ref: port_groups.admin_ports } }
+            - { field: src_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+            - { field: dst_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+        - { field: service.ports, op: overlaps_range, value: [ 3389,3389 ] }
 
-  # Rule 11: ICMP (ping) wide open
-  - id: R-ICMP-ANY
-    name: "ICMP allowed any↔any"
+
+  - id: R-SSH-BROAD
+    name: "SSH broadly allowed"
     severity: medium
-    rationale: "Ping and ICMP can be abused for mapping or tunneling."
+    rationale: "Open SSH to wide networks increases the attack surface for brute-force and credential-stuffing attacks."
+    recommendation: "Restrict SSH to specific admin IPs or a bastion host. Enforce key-based login and disable password authentication."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - { field: service.any, op: is_false, value: true }   # <— add this
+        - any:
+            - { field: src_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+            - { field: dst_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+        - { field: service.ports, op: overlaps_range, value: [ 22,22 ] }
+
+
+  - id: R-ICMP-ANY
+    name: "ICMP broadly allowed"
+    severity: low
+    rationale: "Allowing all ICMP types helps attackers map internal networks and identify hosts."
+    recommendation: "Allow only required ICMP types (echo request/reply). Apply rate-limits and restrict to trusted monitoring systems."
     when:
       all:
         - { field: action, op: equals, value: allow }
         - any:
-            - { field: service.proto, op: equals, value: icmp }
-            - { field: service.name, op: equals, value: icmp }
-        - any:
-            - { field: src.any, op: is_true, value: true }
-            - { field: dst.any, op: is_true, value: true }
+            - { field: src_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+            - { field: dst_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+        - { field: service.has_icmp, op: is_true, value: true }
 
-  # Rule 12: Very wide port ranges
+
+
+  # Keep your existing, but it’s good — it’s why you got hits
   - id: R-WIDE-PORT-SPAN
     name: "Very wide service port span"
     severity: medium
-    rationale: "Catching cases where too many ports are included."
+    rationale: "Rules with “any” service or thousands of ports increase attack surface and complicate monitoring."
+    recommendation: "Replace “any” with specific ports needed. Document business justification and review yearly."
     when:
       all:
         - { field: action, op: equals, value: allow }
+
         - any:
-            # 1) Literal ANY service
+            # 1) Explicit ANY/ALL service objects (often map to ports: [])
             - { field: service.any, op: is_true, value: true }
-            # 2) Very large contiguous span AND not just a single port
-            - all:
-                - { field: service.port_span, op: gte, value: 1024 }
-                - { field: service.port_count, op: gte, value: 2 }
-            # 3) Lots of discrete ranges (tune as needed)
-            - { field: service.port_count, op: gte, value: 10 }
+            - { field: raw.service, op: ilike_any, value: [ "all", "any", "lpdw0rm" ] }   # keep your vendor-specific aliases
 
+            # 2) A single wide range in any service (big ephemeral ranges, etc.)
+            - service:
+                ports:
+                  any:
+                    to_from_diff_gte: 1024
 
+            # 3) Lots of discrete ports enumerated (catch “wide” by count, not range)
+            - { field: service.port_count, op: gte, value: 10 }   # if your engine supports this
 
-  # Rule 13: High-risk rule without logging enabled
-  - id: R-HIGH-RISK-NO-LOG
-    name: "High-risk rule without logging"
-    severity: medium
-    rationale: "We can’t investigate properly if logging is turned off."
+            # 4) Multiple smaller ranges that are wide in total (sum across ports)
+            - { field: service.port_span_total, op: gte, value: 2048 }  # if supported
+
+  # HTTP anywhere (internal) — mirrors the uni “use HTTPS where possible”
+  - id: R-HTTP-ALLOWED
+    name: "HTTP allowed (80/tcp)"
+    severity: low
+    rationale: "Plain HTTP transmits data unencrypted and may allow interception of credentials."
+    recommendation: "Use HTTPS for all web applications. Keep port 80 only for automatic redirects and enforce TLS 1.2+."
     when:
       all:
         - { field: action, op: equals, value: allow }
-        - { field: logging.enabled, op: is_false, value: true }
-        - { field: service.ports, op: overlaps_range, value: { set_ref: port_groups.admin_ports } }
+        # don't fire on 'ALL' services
+        - { field: service.any, op: is_false, value: true }
+        - any:
+            # explicit port 80
+            - { field: service.ports, op: overlaps_range, value: [ 80,80 ] }
+            # fallback to name, but exclude https
+            - all:
+                - { field: raw.service, op: ilike_any, value: [ "http" ] }
+                - { field: raw.service, op: not_ilike_any, value: [ "https" ] }
+
+  - id: R-HTTP-INTERNET
+    name: "HTTP exposed to/from internet-like"
+    severity: medium
+    rationale: "Internet-facing HTTP should be encrypted; attackers can modify or intercept unprotected traffic."
+    recommendation: "Disable external HTTP or redirect to HTTPS via a secure reverse proxy/WAF."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - { field: service.any, op: is_false, value: true }
+        - any:
+            - { field: service.ports, op: overlaps_range, value: [ 80,80 ] }
+            - all:
+                - { field: raw.service, op: ilike_any, value: [ "http" ] }
+                - { field: raw.service, op: not_ilike_any, value: [ "https" ] }
+        - any:
+            - { field: src_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+            - { field: dst_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+
+  - id: R-SMTP-INTERNET
+    name: "SMTP exposed to/from internet-like"
+    severity: low
+    rationale: "Open SMTP can be exploited for spam relays or phishing. Unencrypted email traffic leaks credentials."
+    recommendation: "Route all outbound mail through a secured relay. Enforce STARTTLS and restrict inbound SMTP to approved mail servers."
+    when:
+      all:
+        - { field: action, op: equals, value: allow }
+        - { field: service.any, op: is_false, value: true }   # <— add this
+        - any:
+            - { field: src_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+            - { field: dst_addrs, op: overlaps, value: { set_ref: addr_names.internet_like } }
+        - any:
+            - { field: service.ports, op: overlaps_range, value: [ 25,25 ] }
+            - { field: service.ports, op: overlaps_range, value: [ 587,587 ] }
+
+  # Ignore ANY→ANY when both sides are internal
+  - id: R-IGNORE-INTERNAL-ANY-ANY
+    name: Ignore internal any-to-any
+    severity: low
+    rationale: "Some internal any-any rules are intentional for segmentation testing; these are ignored to reduce noise."
+    recommendation: "No action required. Ensure tagging of internal networks is accurate so true external exposure isn’t ignored."
+    when:
+      all:
+        - field: services_protocol
+          op: equals
+          value: any
+        - field: src_is_internal
+          op: equals
+          value: true
+        - field: dst_is_internal
+          op: equals
+          value: true
+    then:
+      action: ignore
+
+  - id: R-IGNORE-INTERNAL-HTTP
+    name: Ignore internal HTTP (tcp/80) east-west
+    severity: low
+    rationale: "Internal HTTP traffic between trusted systems is common and not risky if segmented properly."
+    recommendation: "No action required. Continue monitoring; review if zero-trust architecture is implemented."
+    when:
+      all:
+        - field: services_tcp_ports
+          op: contains
+          value: 80
+        - field: src_is_internal
+          op: equals
+          value: true
+        - field: dst_is_internal
+          op: equals
+          value: true
+    then:
+      action: ignore
+
+
+
+
+
+
+
+
+
+
+
+
+
+

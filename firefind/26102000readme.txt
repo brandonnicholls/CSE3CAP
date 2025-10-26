@@ -1,0 +1,7 @@
+- Enhanced export_manager PDF output (cleaner layout, severity ordering, improved readability)
+- Expanded rules.yml coverage and refined detection accuracy
+- Improved normalization logic in one.py and v01.py, tested across multiple vendor CSV/XLSX exports
+- Added csv_robust.py to handle malformed/quoted CSV structures and trailing delimiters
+- Increased consistency in service/port parsing and address object normalization
+- Verified parsing/risk-engine output over a wide dataset (Fortinet, Sophos, Checkpoint, mixed)
+- Moved run_engine_cli.py from tests to firefind since its not a test anymore.

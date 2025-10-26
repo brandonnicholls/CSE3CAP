@@ -1,3 +1,0 @@
-client,source_file,vendor,rule_id,check_id,title,severity,reason,recommendation,labels,src,dst,service,action
-,outside_fw.rules.v01.jsonl,fortinet,419,R-WIDE-PORT-SPAN,Very wide service port span,medium,Catching cases where too many ports are included.,,,CLIENT_CloudPC,OUT-PRD-VL0,any,
-,outside_fw.rules.v01.jsonl,fortinet,418,R-WIDE-PORT-SPAN,Very wide service port span,medium,Catching cases where too many ports are included.,,,OUT-PRD-VL0,CLIENT_CloudPC,any,

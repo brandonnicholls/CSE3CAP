@@ -1,6 +1,9 @@
 ﻿# firefind/one.py
 # Parser-only CLI: CSV/XLSX -> flat CSV + optional v0.1 JSONL
 from __future__ import annotations
+from .csv_robust import read_csv_loose_as_df, rebuild_with_header
+
+import io
 
 """
 quick context (for future me + marker):
@@ -162,25 +165,106 @@ def list_sheets(path: str) -> List[str]:
         # could be a weird/corrupted file; just return empty
         return []
 
+#  add near the top with other imports
+import io
+
+#  add below list_sheets() or nearby
+def _read_weird_csv_into_df(path: Path) -> pd.DataFrame:
+    """
+    Fix CSVs where each line is wrapped in outer quotes and padded with trailing commas.
+    Example raw line:  "num,name,source,...,comments",,,,,,
+    We strip outer quotes + trailing commas, then parse.
+    """
+    lines_raw = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    cleaned = []
+    for line in lines_raw:
+        s = line.strip()
+        if not s:
+            continue
+        s = re.sub(r'(,)+\s*$', '', s)              # drop trailing commas
+        if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+            s = s[1:-1]                             # strip one pair of outer quotes
+        cleaned.append(s)
+    buf = io.StringIO("\n".join(cleaned))
+    return pd.read_csv(buf, header=None, dtype=str, na_filter=False, encoding="utf-8", on_bad_lines="skip")
+
+def _try_read_csv_normal_then_fallback(path: Path) -> pd.DataFrame:
+    """
+    Try normal read. If we get a single column that still contains commas/quotes,
+    switch to the weird-CSV cleaner.
+    """
+    df0 = pd.read_csv(str(path), header=None, dtype=str, na_filter=False, encoding="utf-8", on_bad_lines="skip")
+    if df0.shape[1] == 1:
+        first = str(df0.iloc[0, 0])
+        if (first.count(",") >= 3) or ('"' in first):
+            df0 = _read_weird_csv_into_df(path)
+    return df0
+
+def _force_csv_df(path: Path) -> pd.DataFrame:
+    """
+    Robust CSV reader for lines like: "num,name,source,...,comments",,,,,,
+    Strips a single pair of outer quotes and trailing commas from each line,
+    then parses via Python's csv (so embedded quotes/commas stay correct).
+    Returns a DataFrame with the proper header row as columns.
+    """
+    text = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    cleaned = []
+    for line in text:
+        s = line.strip()
+        if not s:
+            continue
+        # drop trailing commas
+        s = re.sub(r'(,)+\s*$', '', s)
+        # strip exactly one pair of outer quotes
+        if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+            s = s[1:-1]
+        cleaned.append(s)
+
+    import csv
+    rows = list(csv.reader(io.StringIO("\n".join(cleaned))))
+    if not rows:
+        return pd.DataFrame()
+
+    # First row is the header; normalize but keep original text
+    header = rows[0]
+    data = rows[1:]
+    # Build DataFrame with header
+    df = pd.DataFrame(data, columns=header)
+    # Drop completely empty rows
+    df = df[[c for c in df.columns if c is not None]]
+    df = df.replace({None: ""}).fillna("")
+    return df
+
+
+
+
+
 def _load_df(path: Path, sheet: Optional[str], header_scan_rows: int, skip_rows: int) -> Optional[pd.DataFrame]:
-    # load raw file, optionally pick a sheet; then figure out header row
     suffix = path.suffix.lower()
     if suffix in {".xlsx",".xls"}:
         df0 = pd.read_excel(str(path), sheet_name=sheet, header=None, dtype=str, na_filter=False)
     else:
-        df0 = pd.read_csv(str(path), header=None, dtype=str, na_filter=False, encoding="utf-8", on_bad_lines="skip")
-    # some exports have banner junk on top; let user skip a few rows
+        # NEW: robust CSV ingestion (tolerates outer quotes, trailing commas, stray quotes)
+        df0 = read_csv_loose_as_df(path)
+
     if skip_rows > 0:
         df0 = df0.iloc[skip_rows:].reset_index(drop=True)
+
     header_row, _ = _find_header(df0, header_scan_rows)
     if header_row < 0:
-        # we give up here; caller will handle "no rules"
         return None
-    hdr = header_row + (skip_rows or 0)
-    # re-read with the detected header row so pandas assigns proper column names
+
     if suffix in {".xlsx",".xls"}:
+        hdr = header_row + (skip_rows or 0)
         return pd.read_excel(str(path), sheet_name=sheet, header=hdr, dtype=str, na_filter=False)
-    return pd.read_csv(str(path), header=hdr, dtype=str, na_filter=False, encoding="utf-8", on_bad_lines="skip")
+
+    # CSV: rebuild using the detected header row
+    return rebuild_with_header(df0, header_row)
+
+
+
+
+
 
 def parse(path: str, *, sheet: Optional[str] = None, header_scan_rows: int = 15, skip_rows: int = 0) -> Iterable[Dict]:
     # main generator: yields flat rule dicts
@@ -309,9 +393,10 @@ def main() -> int:
         dump_sheet(in_file, args.dump_sheet, out_dir); return 0
 
     # Parse (either auto-pick best combo or use the exact args)
-    if args.auto and in_file.suffix.lower() in {".xlsx",".xls"}:
+    if args.auto:
         best = auto_find_best(in_file)
-        print(f"AUTO chose -> sheet={best['sheet']!r} header_scan={best['scan']} skip_rows={best['skip']}  count={best['count']}")
+        print(
+            f"AUTO chose -> sheet={best['sheet']!r} header_scan={best['scan']} skip_rows={best['skip']}  count={best['count']}")
         rules = best["rules"]
         chosen_sheet = best["sheet"]
     else:
