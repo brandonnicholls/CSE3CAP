@@ -1,0 +1,2 @@
+vendor,rule_id,src,dst,service,action,reason,severity
+unknown,allow-ot-int,all,all,ALL_ICMP DNS HTTPS,accept,,

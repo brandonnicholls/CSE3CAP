@@ -1,0 +1,3 @@
+vendor,rule_id,src,dst,service,action,reason,severity
+fortinet,419,CLIENT_CloudPC,OUT-PRD-VL0,ALL,Accept,,
+fortinet,418,OUT-PRD-VL0,CLIENT_CloudPC,ALL,Accept,,

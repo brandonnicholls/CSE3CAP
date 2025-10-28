@@ -1,0 +1,1 @@
+{"rule_id":"","vendor":"unknown","enabled":true,"action":"deny","src_addrs":["any"],"dst_addrs":["any"],"services":[{"protocol":"any","ports":[]}],"raw":{"vendor":"unknown","rule_id":"","src":"","dst":"","service":"","action":"deny","reason":""},"name":null,"comments":null}
