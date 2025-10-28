@@ -602,13 +602,13 @@ class UI:
         NORMAL_BG = SIDEBAR_COLOR
         NORMAL_FG = "#444444"
 
-        sidebar = tk.Frame(self.root, bg=SIDEBAR_COLOR, width=200)
+        sidebar = tk.Frame(self.root, bg=SIDEBAR_COLOR, width=300)
         sidebar.pack(side="left", fill="y")
 
         nav_items = [
-            ("Dashboard", self.dashboard_screen, "🏠 "),
             ("Upload", self.upload_screen, "📂 "),
             ("Results", self.results_screen, "📊 "),
+            ("Dashboard", self.dashboard_screen, "🏠 "),
             ("Settings", self.configuration_screen, "⚙️"),
         ]
 
@@ -664,6 +664,7 @@ class UI:
                 img.put("{" + " ".join(row) + "}", to=(0, y))
             return img
 
+        self.icon_critcal = _make_circle("#5e0000")
         self.icon_high = _make_circle("#dc2626")
         self.icon_medium = _make_circle("#f59e42")
         self.icon_low = _make_circle("#a3b83b")
@@ -852,11 +853,13 @@ class UI:
 
         # Count of findings by severity from self.results_data
         if self.results_data:
+            critical_count = sum (1 for r in self.results_data if str (r.get("severity","")).lower() == "critical")
             high_count = sum(1 for r in self.results_data if str(r.get("severity","")).lower() == "high")
             medium_count = sum(1 for r in self.results_data if str(r.get("severity","")).lower() == "medium")
             low_count = sum(1 for r in self.results_data if str(r.get("severity","")).lower() == "low")
             total_count = high_count + medium_count + low_count
         else:
+            critical_count = 0
             high_count = 0
             medium_count = 0
             low_count = 0
@@ -864,7 +867,8 @@ class UI:
 
         # Tiles 
         tile_data = [
-            ("High-Risk Rules", high_count, "#dc2626", "#991b1b"),
+            ("Critical-Risk Rules", critical_count, "#5e0202", "#990000"),
+            ("High-Risk Rules", high_count, "#dc2626", "#881f1f"),
             ("Medium-Risk Rules", medium_count, "#f59e42", "#b45309"),
             ("Low-Risk Rules", low_count, "#a3b83b", "#64741a"),
             ("Total Rules", total_count, "#2563eb", "#1e40af")
@@ -895,16 +899,18 @@ class UI:
 
         # Prepare chart data
         if self.results_data:
+            critical_count = sum (1 for r in self.results_data if str (r.get("severity","")).lower() == "critical")
             high_count = sum(1 for r in self.results_data if str(r.get("severity", "")).strip().lower() == "high")
             medium_count = sum(1 for r in self.results_data if str(r.get("severity", "")).strip().lower() == "medium")
             low_count = sum(1 for r in self.results_data if str(r.get("severity", "")).strip().lower() == "low")
         else:
-            high_count = medium_count = low_count = 0
+            critical_count = high_count = medium_count = low_count = 0
 
         chart_data = [
+            (critical_count, "#5e0202", "Critical Risk"),
             (high_count, "#dc2626", "High Risk"),
             (medium_count, "#f59e42", "Medium Risk"),
-            (low_count, "#a3b83b", "Low Risk")
+            (low_count, "#a3b83b", "Low Risk"),
         ]
 
         total_count = sum(v for v, *_ in chart_data)
@@ -979,7 +985,7 @@ class UI:
         # Severity filter
         severity_var = tk.StringVar(value="All")
         tk.Label(controls, text="Severity:", bg="white").pack(side="left", padx=(8,4))
-        severity_menu = ttk.Combobox(controls, textvariable=severity_var, values=["All", "High", "Medium", "Low"], width=8, state="readonly")
+        severity_menu = ttk.Combobox(controls, textvariable=severity_var, values=["All", "Critical", "High", "Medium", "Low"], width=8, state="readonly")
         severity_menu.pack(side="left")
 
         # Source / Destination filters (populated after data load)
@@ -1011,7 +1017,11 @@ class UI:
                 # call export manager module in-process
                 rc, out, err = run_module_in_process("tests.run_engine_cli", [json_path, "--csv"], script_dir)
                 if rc == 0:
+<<<<<<< HEAD
                     messagebox.showinfo("Export Complete", f"Results exported to {script_dir}\\results\\{file_name}.rules.v01.analysis.csv")
+=======
+                    messagebox.showinfo("Export Complete", f"Results exported to {script_dir}\\results\\{file_name}firefind_report.csv")
+>>>>>>> 4e8c769 (MansoursCodeIntegrated)
                 if rc != 0:
                     raise RuntimeError(err or out)
             except Exception as ex:
@@ -1219,7 +1229,10 @@ class UI:
 
             for r in items:
                 sev = str(r.get("severity", "")).lower()
-                if sev == "high":
+                if sev == "critical":
+                    icon = self.icon_critcal
+                    sev_text = "Critical"
+                elif sev == "high":
                     icon = self.icon_high
                     sev_text = "High"
                 elif sev == "medium":
