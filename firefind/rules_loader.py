@@ -38,6 +38,8 @@ def load_rules(path: str = "rules.yml") -> List[Check]:
     # load port_groups and cidr_groups (reusable sets in the yaml)
     port_groups = config.get("sets", {}).get("port_groups", {})
     cidr_groups = config.get("sets", {}).get("cidr_groups", {})
+    name_groups = config.get("sets", {}).get("addr_names", {})
+
 
     # check that each rule has required fields and valid severity
     validate_rules_schema(rules)
@@ -45,7 +47,7 @@ def load_rules(path: str = "rules.yml") -> List[Check]:
     # compile each rule's "when" into a real predicate function
     compiled = []
     for r in rules:
-        pred = compile_predicate(r["when"], port_groups, cidr_groups, r)
+        pred = compile_predicate(r["when"], port_groups, cidr_groups, name_groups, r)
         r["predicate"] = pred  # attach function to rule
         compiled.append(r)
 
@@ -92,8 +94,10 @@ def compile_predicate(
     when: Dict[str, Any],
     port_groups: Dict[str, List[int]],
     cidr_groups: Dict[str, List[str]],
+    name_groups: Dict[str, List[str]],   # ← ADD
     rule_meta: Dict[str, Any]
 ) -> Callable[[Dict[str, Any]], Tuple[bool, str]]:
+
     """
     Build predicate(rule) for a YAML rule.
     This will run when we test a firewall rule against this check.
@@ -103,7 +107,7 @@ def compile_predicate(
         # first, compute extra fields the YAML expects (like src.any, port_span, etc.)
         row = enrich_rule(rule)
         # now test the "when" block against this enriched rule
-        return eval_condition(when, row, port_groups, cidr_groups, rule_meta)
+        return eval_condition(when, row, port_groups, cidr_groups, name_groups, rule_meta)
 
     return predicate
 
@@ -113,67 +117,72 @@ def eval_condition(
     rule: Dict[str, Any],
     port_groups: Dict[str, List[int]],
     cidr_groups: Dict[str, List[str]],
+    name_groups: Dict[str, List[str]],
     rule_meta: Dict[str, Any]
 ) -> Tuple[bool, str]:
-    """
-    checks one rule thing (from rules.yml) against 1 firewall rule
-    it supports:
-    - "all" (everything inside must match)
-    - "any" (just one match is fine)
-    - "builtin" short stuff
-    - field check with some ops
-    """
 
-    # if "all" is in cond, then all small rules must be true
+    # Always return (bool, str)
+    if not isinstance(cond, dict):
+        return False, ""
+
+    def _ensure_tuple(res):
+        if isinstance(res, tuple) and len(res) == 2 and isinstance(res[0], bool):
+            return res
+        return False, ""
+
+    # logical blocks
     if "all" in cond:
-        for sub in cond["all"]:
-            matched, reason = eval_condition(sub, rule, port_groups, cidr_groups, rule_meta)
-            if not matched:  # one fail? whole thing fails
+        subs = cond.get("all") or []
+        if not isinstance(subs, list):
+            return False, ""
+        for sub in subs:
+            matched, reason = _ensure_tuple(eval_condition(sub, rule, port_groups, cidr_groups, name_groups, rule_meta))
+            if not matched:
                 return False, ""
-        return True, rule_meta.get("rationale", "")  # ok all passed
+        return True, rule_meta.get("rationale", "")
 
-    # "any" is like at least one must pass
-    elif "any" in cond:
-        for sub in cond["any"]:
-            matched, reason = eval_condition(sub, rule, port_groups, cidr_groups, rule_meta)
-            if matched:  # first one true? done
+    if "any" in cond:
+        subs = cond.get("any") or []
+        if not isinstance(subs, list):
+            return False, ""
+        for sub in subs:
+            matched, reason = _ensure_tuple(eval_condition(sub, rule, port_groups, cidr_groups, name_groups, rule_meta))
+            if matched:
                 return True, reason
-        return False, ""  # nothing passed
+        return False, ""
 
-    # builtin checks like special shortcuts
+    #  builtin shortcuts (optional)
     if "builtin" in cond:
-        if cond["builtin"] == "unknown_service":
-            # check if service name is unknown
+        b = cond["builtin"]
+        if b == "unknown_service":
             if rule.get("service", {}).get("name") == "unknown":
                 return True, rule_meta.get("rationale", "")
-        if cond["builtin"] == "reciprocal":
-            # lol not made yet
+            return False, ""
+        if b == "reciprocal":
             return False, ""
         return False, ""
 
-    # normal field checking part
+    # field ops
     field = cond.get("field")
-    op = cond.get("op")
+    op    = cond.get("op")
     value = cond.get("value")
 
-    # if value has set_ref, we gotta swap it for real stuff like numbers or ips
+    if field is None or op is None:
+        return False, ""
+
+    # resolve set_ref
     if isinstance(value, dict) and "set_ref" in value:
         ref = value["set_ref"]
         if ref.startswith("port_groups."):
-            key = ref.split(".", 1)[1]
-            value = port_groups.get(key, [])
+            value = port_groups.get(ref.split(".", 1)[1], [])
         elif ref.startswith("cidr_groups."):
-            key = ref.split(".", 1)[1]
-            value = cidr_groups.get(key, [])
+            value = cidr_groups.get(ref.split(".", 1)[1], [])
+        elif ref.startswith("addr_names."):
+            value = name_groups.get(ref.split(".", 1)[1], [])
 
-    # get what the rule actually has for this field
     field_val = get_field(rule, field)
 
-    # avoid None crash for >= or <=
-    if op in ("gte", "lte") and field_val is None:
-        return False, ""
-
-    # check diff operators
+    # comparisons
     if op == "equals":
         return (field_val == value, rule_meta.get("rationale", ""))
     if op == "is_true":
@@ -183,21 +192,59 @@ def eval_condition(
     if op == "contains":
         ok = False
         if isinstance(field_val, list):
-            ok = value in field_val  # check if value inside list
+            ok = value in field_val
         elif isinstance(field_val, str):
-            ok = str(value) in field_val  # check substring
+            ok = isinstance(value, str) and value in field_val
         return (ok, rule_meta.get("rationale", ""))
+    if op == "overlaps":
+        fv = field_val if isinstance(field_val, list) else []
+        vv = value if isinstance(value, list) else []
+        return (bool(set(fv) & set(vv)), rule_meta.get("rationale", ""))
+
+    # proper numeric range overlap
     if op == "overlaps_range":
         fv = field_val if isinstance(field_val, list) else []
         vv = value if isinstance(value, list) else []
-        return (bool(set(fv) & set(vv)), rule_meta.get("rationale", ""))  # check if overlap
+        # list of discrete ports (e.g., admin_ports)
+        if vv and not (len(vv) == 2 and all(isinstance(x, int) for x in vv)):
+            return (bool(set(fv) & set(vv)), rule_meta.get("rationale", ""))
+        # numeric range [lo, hi]
+        if len(vv) == 2 and all(isinstance(x, int) for x in vv):
+            lo, hi = vv
+            if hi < lo: lo, hi = hi, lo
+            # service.any overlaps everything
+            if get_field(rule, "service.any"):
+                return True, rule_meta.get("rationale", "")
+            # endpoints check
+            for p in fv:
+                if isinstance(p, int) and lo <= p <= hi:
+                    return True, rule_meta.get("rationale", "")
+            return False, ""
+        return False, ""
+
     if op == "gte":
+        if field_val is None: return False, ""
         return (field_val >= value, rule_meta.get("rationale", ""))
     if op == "lte":
+        if field_val is None: return False, ""
         return (field_val <= value, rule_meta.get("rationale", ""))
 
-    # if nothing matched, return fail
+    # case-insensitive contains helpers (for DHCP exclusions etc.)
+    if op == "ilike_any":
+        s = field_val if isinstance(field_val, str) else ""
+        terms = value if isinstance(value, list) else [value]
+        ok = any(isinstance(t, str) and t.lower() in s.lower() for t in terms)
+        return (ok, rule_meta.get("rationale", ""))
+    if op == "not_ilike_any":
+        s = field_val if isinstance(field_val, str) else ""
+        terms = value if isinstance(value, list) else [value]
+        ok = all(isinstance(t, str) and t.lower() not in s.lower() for t in terms)
+        return (ok, rule_meta.get("rationale", ""))
+
+    # unknown op → clean fail
     return False, ""
+
+
 
 
 def get_field(rule: Dict[str, Any], dotted: str) -> Any:
@@ -218,90 +265,65 @@ def get_field(rule: Dict[str, Any], dotted: str) -> Any:
 #ENRICH RULE
 
 def enrich_rule(rule: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Add extra fields to the firewall rule so the YAML conditions make sense.
-    For v0.1 normalized input, we:
-      - use src_addrs/dst_addrs (fallback to legacy src/dst)
-      - aggregate service facts from the 'services' array into a synthetic 'service' dict:
-          service.any: bool
-          service.port_count: int (number of tcp/udp ranges, not expanded)
-          service.port_span: int (largest contiguous span among ranges; 65535 if 'any' only)
-    """
-    r = dict(rule)  # shallow copy
-
-    # keep original lists (prefer normalized schema; fallback to legacy keys)
+    r = dict(rule)
     src_list = r.get("src_addrs") or r.get("src") or []
     dst_list = r.get("dst_addrs") or r.get("dst") or []
 
-    # compute address info for src and dst
     src_info = _compute_addr_info(src_list)
     dst_info = _compute_addr_info(dst_list)
 
-
-    r["src"] = {
-        "any": src_info["any"],
-        "cidr": src_info["cidrs"],
-        "max_prefix_len": src_info["max_prefix_len"]
-    }
-    r["dst"] = {
-        "any": dst_info["any"],
-        "cidr": dst_info["cidrs"],
-        "max_prefix_len": dst_info["max_prefix_len"],
-        "is_private": dst_info["has_private"]
-    }
-
-
+    r["src"] = {"any": src_info["any"], "cidr": src_info["cidrs"], "max_prefix_len": src_info["max_prefix_len"]}
+    r["dst"] = {"any": dst_info["any"], "cidr": dst_info["cidrs"], "max_prefix_len": dst_info["max_prefix_len"], "is_private": dst_info["has_private"]}
     r["src_list"] = src_list
     r["dst_list"] = dst_list
 
-    #NEW: aggregate service fields from normalized services array
     svcs = r.get("services") or []
     has_any = False
-    port_count = 0          # number of tcp/udp *ranges* (do not expand)
-    span_max = 0            # max contiguous span among ranges
+    has_icmp = False
+    port_count = 0
+    span_max = 0
+    flat_ports: List[int] = []
 
     for s in svcs:
         proto = (s.get("protocol") or "").lower()
         if proto == "any":
-            has_any = True
-            continue
-        if proto in ("tcp", "udp"):
+            has_any = True; continue
+        if proto == "icmp":
+            has_icmp = True; continue
+        if proto in ("tcp","udp"):
             for rng in (s.get("ports") or []):
                 try:
-                    lo = int(rng.get("from"))
-                    hi = int(rng.get("to"))
+                    lo = int(rng.get("from")); hi = int(rng.get("to"))
                 except Exception:
                     continue
-                if hi < lo:
-                    lo, hi = hi, lo
+                if hi < lo: lo, hi = hi, lo
                 span = hi - lo
-                if span > span_max:
-                    span_max = span
+                if span > span_max: span_max = span
                 port_count += 1
-        # 'icmp' has no ports; ignore for counts/spans
+                if lo == hi:
+                    flat_ports.append(lo)
+                else:
+                    flat_ports.extend([lo, hi])
 
-    # If service is literally ANY (and no explicit ranges), treat span as "wide open"
     if has_any and port_count == 0:
         span_max = 65535
 
-    # Synthetic 'service' object for YAML conditions
     r["service"] = {
         "any": has_any,
         "port_count": port_count,
         "port_span": span_max,
+        "ports": flat_ports,
+        "has_icmp": has_icmp,
     }
-    # -------------------------------------------------------------------------------
 
-    # logging
     r.setdefault("logging", {})
     if "enabled" not in r["logging"]:
         r["logging"]["enabled"] = True
-
-    # direction default
     if "direction" not in r:
         r["direction"] = "any"
-
     return r
+
+
 
 
 

@@ -1,38 +1,28 @@
 # export_manager.py
-# this script handles exporting firefind findings to a clean professional-lookinig PDF report.
-# table ismoreconsistent now, no more data cluttering
-# Feel free to delete all commented functions,(anything related to csv, xslx and so on...) they are not needed
-# This specific version is stable and works however it can benefit from some  user recommendations
-# based on the findings ( we can work on it next sprint)
+# FireFind — Professional stakeholder PDF (severity-coloured cards; no data grid)
+# USAGE:
+#   python -m firefind.export_manager <input.jsonl|json> --out results/firefind_report.pdf [--ttf assets/fonts/DejaVuSans.ttf]
 #
+# Notes:
+# - If --ttf is provided and the TTF exists, we render full Unicode. Otherwise we sanitize to ASCII for core fonts.
+# - Layout: Cover → Summary → Finding Cards (one section per finding)
 
-#USAGE:
-#   python -m firefind.export_manager <input.jsonl> [--out results/report.pdf]
-#
-#   Example:
-#       python -m firefind.export_manager .\results\findings.jsonl --out .\results\firefind_report.pdf
-
-## Feel free to delete all uncommented functions below
-
-# import csv  # not needed Json findings already exist from the stupid risk engine
 import os
 import re
+import json
+import argparse
 from datetime import datetime
-# from tkinter import filedialog, messagebox  # not needed
-# import pandas as pd  # not needed, xlsx was something to worry about in the early stages
 from fpdf import FPDF
-from textwrap import wrap
 
-# new ascii map unicode helpers
+# ASCII fallbacks (only used when no TTF provided)
 _ASCII_MAP = {
-    "\u2013": "-", "\u2014": "-",  # dashes
-    "\u2018": "'", "\u2019": "'",  # single quotes
-    "\u201C": '"', "\u201D": '"',  # double quotes
-    "\u2026": "...",               # ellipsis
-    "\u00A0": " ",                 # nbsp
+    "\u2013": "-", "\u2014": "-",
+    "\u2018": "'", "\u2019": "'",
+    "\u201C": '"', "\u201D": '"',
+    "\u2026": "...",
+    "\u00A0": " ",
 }
 def _ascii_sanitize(s):
-    """Make text safe for core fonts (no TTF)."""
     if s is None:
         return ""
     if not isinstance(s, str):
@@ -44,523 +34,405 @@ def _ascii_sanitize(s):
     except Exception:
         return s
 
-def _safe_ascii(s: str) -> str:
-    # replace common Unicode punctuation with ASCII equivalents
-    return (s or "").replace("…", "...") \
-                    .replace("–", "-").replace("—", "-") \
-                    .replace("’", "'").replace("‘", "'") \
-                    .replace("“", '"').replace("”", '"')
+def _service_to_str(service: dict) -> str:
+    """Turn one service object into human-readable 'proto/port,port2' or 'any'."""
+    if not service:
+        return ""
+    proto = (service.get("protocol") or "").lower()
+    ports = service.get("ports") or []
+    if proto == "any" or not ports:
+        return proto or "any"
+    frags = []
+    for p in ports:
+        lo, hi = p.get("from"), p.get("to")
+        frags.append(str(lo) if lo == hi else f"{lo}-{hi}")
+    return f"{proto}/{','.join(frags)}"
 
-
-def _format_services_for_table(services):
-    """Same logic as before, just factored out for reuse in PDF table."""
+def _format_services(services: list) -> str:
+    """Join service strings; keep it short but accurate."""
     parts = []
-    for service in services or []:
-        protocol = service.get('protocol', '') or ''
-        ports = service.get('ports', []) or []
-        port_ranges = []
-        for port in ports:
-            port_from = port.get('from')
-            port_to = port.get('to')
-            if port_from == port_to:
-                port_ranges.append(str(port_from))
-            else:
-                port_ranges.append(f"{port_from}-{port_to}")
-        if port_ranges:
-            parts.append(f"{protocol}/{','.join(port_ranges)}")
-        elif protocol:
-            parts.append(protocol)
-    return "; ".join(parts)
+    for s in services or []:
+        parts.append(_service_to_str(s))
+    return ", ".join([p for p in parts if p]) or "—"
 
-def _wrap_to_width(pdf, text: str, col_w: float) -> list[str]:
+def _csvish_join(vals: list) -> str:
+    return ", ".join([str(v) for v in (vals or [])]) or "—"
+
+# PDF renderer
+class FireFindPDF(FPDF):
     """
-    Greedy wrap that:
-      - allows breaks after commas/semicolons
-      - forces a break inside very long tokens that exceed the column width
+    Professional stakeholder report.
+    - Flexible fonts: Unicode TTF if provided; else Helvetica + ASCII sanitization.
+    - Sections: cover, summary, finding cards.
     """
-    # 1) normalize and inject a space after punctuation so it can break
-    txt = pdf._safe(str(text or ""))
-    txt = re.sub(r'([,;])(\S)', r'\1 \2', txt)  # ",X" -> ", X"   ";X" -> "; X"
 
-    words = txt.split()
-    if not words:
-        return [""]
+    def __init__(self, *, ttf_path: str | None = None, logo_path: str | None = None):
+        super().__init__(orientation="P", unit="mm", format="A4")
+        self.set_auto_page_break(auto=False, margin=18)
+        self.logo_path = logo_path
+        self.report_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    def _force_break(token: str) -> list[str]:
-        """Break a single very-long token into pieces that fit the column."""
-        parts = []
-        cur = ""
-        for ch in token:
-            trial = cur + ch
-            if pdf.get_string_width(trial) <= (col_w - 2):
-                cur = trial
-            else:
-                if cur:
-                    parts.append(cur)
-                cur = ch
-        if cur:
-            parts.append(cur)
-        return parts
+        # Font config
+        self.using_unicode = False
+        self.base_font_reg = "Helvetica"
+        self.base_font_bold = "Helvetica"
 
-    lines, cur = [], words[0]
-    for w in words[1:]:
-        trial = cur + " " + w
-        if pdf.get_string_width(trial) <= (col_w - 2):
-            cur = trial
+        if ttf_path and os.path.exists(ttf_path):
+            try:
+                # Register the same TTF twice for "regular" and "bold" weights (fpdf2 doesn't fake bold on TTF)
+                self.add_font("UNI", "", ttf_path, uni=True)
+                self.add_font("UNIB", "", ttf_path, uni=True)
+                self.base_font_reg = "UNI"
+                self.base_font_bold = "UNIB"
+                self.using_unicode = True
+            except Exception:
+                self.using_unicode = False
+
+        # Severity palette (WCAG-ish contrast friendly)
+        self.sev_palette = {
+            "Critical": (220, 53, 69),   # red
+            "High":     (255, 127, 17),  # orange
+            "Medium":   (255, 193, 7),   # amber
+            "Low":      (13, 110, 253),  # blue
+            "Info":     (108, 117, 125), # gray (fallback)
+        }
+
+        # Neutral accents
+        self.accent_grey = (245, 246, 248)
+        self.text_muted = (80, 85, 90)
+        self.text_dark  = (25, 28, 32)
+        self.rule_line  = (220, 224, 228)
+
+    #  font helpers
+    def _font(self, size=10, bold=False):
+        if bold:
+            self.set_font(self.base_font_bold, "", size)
         else:
-            lines.append(cur)
-            cur = w
+            self.set_font(self.base_font_reg, "", size)
 
-    # finalize last line
-    if pdf.get_string_width(cur) <= (col_w - 2):
-        lines.append(cur)
-    else:
-        # last token still too wide -> forced chunks
-        lines.extend(_force_break(cur))
+    def _safe(self, s: str) -> str:
+        return s if self.using_unicode else _ascii_sanitize(s)
 
-    # safety: if any individual word is still too wide (first word case), chunk it
-    fixed = []
-    for ln in lines:
-        if pdf.get_string_width(ln) <= (col_w - 2):
-            fixed.append(ln)
-        else:
-            fixed.extend(_force_break(ln))
-    return fixed or [""]
+    #  drawing helpers
+    def _hline(self, x=None, y=None, w=None):
+        if x is None: x = self.l_margin
+        if y is None: y = self.get_y()
+        if w is None: w = self.w - self.l_margin - self.r_margin
+        r,g,b = self.rule_line
+        self.set_draw_color(r,g,b)
+        self.line(x, y, x + w, y)
 
-def _truncate(s, n):
-    """Keep cells neat (ASCII-safe)."""
-    s = "" if s is None else str(s)
-    if len(s) <= n:
-        return s
-    if n <= 3:
-        return s[:n]
-    # Use ASCII ellipsis to avoid Unicode issues with core fonts
-    return s[: n - 3] + "..."
+    def _section_title(self, text: str):
+        self._font(13, bold=True)
+        self.set_text_color(*self.text_dark)
+        self.cell(0, 8, self._safe(text), new_x="LMARGIN", new_y="NEXT")
+        self.ln(1)
+        self._hline()
+        self.ln(2)
 
+    def _will_exceed(self, height: float) -> bool:
+        """Check if adding 'height' would run past bottom margin."""
+        safe_bottom = 18
+        return (self.get_y() + height) > (self.h - safe_bottom)
+
+    def _ensure_space(self, needed: float):
+        """Insert a new page if content of height 'needed' won't fit."""
+        if self._will_exceed(needed):
+            self.add_page()
+
+    # header/footer
+    def header(self):
+        # Simple, clean header (logo optional)
+        top = 10
+        if self.logo_path and os.path.exists(self.logo_path):
+            try:
+                self.image(self.logo_path, x=self.l_margin, y=top, w=16)
+            except Exception:
+                pass
+
+        self._font(18, bold=True)
+        self.set_text_color(*self.text_dark)
+        self.set_y(top)
+        self.cell(0, 10, self._safe("FireFind Security Report"), align="C", new_x="LMARGIN", new_y="NEXT")
+
+        self._font(10)
+        self.set_text_color(*self.text_muted)
+        self.cell(0, 6, self._safe(f"Generated on: {self.report_datetime}"), align="C", new_x="LMARGIN", new_y="NEXT")
+        self.ln(2)
+
+    def footer(self):
+        self.set_y(-13)
+        self._font(8)
+        self.set_text_color(*self.text_muted)
+        self.cell(0, 6, self._safe(f"Page {self.page_no()}"), align="C")
+
+    #  cover + summary
+    def add_cover(self, counts: dict):
+        """Hero cover with big title & quick severity counts."""
+        self.add_page()
+        self.ln(30)
+
+        self._font(22, bold=True)
+        self.set_text_color(*self.text_dark)
+        self.cell(0, 12, self._safe("Firewall Risk Identification — Findings Overview"),
+                  align="C", new_x="LMARGIN", new_y="NEXT")
+
+        self._font(11)
+        self.set_text_color(*self.text_muted)
+        self.cell(0, 7, self._safe("Automated analysis of firewall rules across vendors"),
+                  align="C", new_x="LMARGIN", new_y="NEXT")
+        self.ln(10)
+
+        # Card with counts
+        left = self.l_margin
+        width = self.w - self.l_margin - self.r_margin
+        box_h = 40
+        self._ensure_space(box_h + 8)
+        self.set_fill_color(*self.accent_grey)
+        self.rect(left, self.get_y(), width, box_h, style="F")
+        self.ln(4)
+
+        self._font(12, bold=True)
+        self.set_text_color(*self.text_dark)
+        self.cell(0, 8, self._safe("Security Findings Summary"), new_x="LMARGIN", new_y="NEXT")
+        self._font(11)
+        self.set_text_color(*self.text_muted)
+        total = sum(counts.values())
+        self.cell(0, 6, self._safe(f"Total Findings: {total}"),
+                  new_x="LMARGIN", new_y="NEXT")
+
+        # row of coloured chips
+        self.ln(1)
+        chip_h = 8
+        for label in ["Critical", "High", "Medium", "Low"]:
+            n = counts.get(label, 0)
+            r,g,b = self.sev_palette.get(label, self.sev_palette["Info"])
+            self.set_fill_color(r,g,b)
+            self.set_text_color(255,255,255)
+            self._font(10, bold=True)
+            txt = f" {label}: {n} "
+            self.cell(self.get_string_width(txt) + 4, chip_h, self._safe(txt), align="C", fill=True)
+            self.cell(4, chip_h, "")  # spacing
+
+        # reset text colour
+        self.set_text_color(*self.text_dark)
+        self.ln(12)
+
+    # finding cards
+    def _sev_color(self, severity: str):
+        key = (severity or "").capitalize()
+        return self.sev_palette.get(key, self.sev_palette["Info"])
+
+    def _pair(self, label: str, value: str, label_w=40, line_h=6):
+        """One-row label/value pair (wraps value)."""
+        x = self.get_x(); y = self.get_y()
+        self._font(9, bold=True); self.set_text_color(*self.text_muted)
+        self.multi_cell(label_w, line_h, self._safe(label), border=0)
+        self.set_xy(x + label_w, y)
+        self._font(10); self.set_text_color(*self.text_dark)
+        self.multi_cell(0, line_h, self._safe(value), border=0)
+        self.ln(1)
+
+    # measuring helpers (use split_only to avoid drawing while measuring)
+    def _measure_lines(self, text: str, width: float, *, size=10, bold=False, line_h=6) -> int:
+        """Return how many lines a multi_cell would consume with given font/width."""
+        self._font(size, bold)
+        lines = self.multi_cell(width, line_h, self._safe(text or "—"), split_only=True)
+        return max(1, len(lines or [""]))
+
+    def _measure_block(self, label: str, value: str, *, label_w: float, content_w: float,
+                       label_size=9, value_size=10, line_h=6) -> float:
+        """Label above value: total height (label + value + small spacing)."""
+        n_label = self._measure_lines(label, content_w, size=label_size, bold=True, line_h=line_h)
+        n_val   = self._measure_lines(value, content_w, size=value_size,  bold=False, line_h=line_h)
+        # label line_h + value lines + spacing
+        return (n_label * line_h) + (n_val * line_h) + 2.0
+
+    def add_finding_cards(self, findings: list):
+        self._section_title("Detailed Findings")
+
+        # layout constants
+        pad_x = 8.0
+        pad_y_top = 4.0
+        pad_y_bottom = 6.0
+        line_h = 6.0
+
+        for f in findings:
+            # Extract fields
+            rule_id = str(f.get("rule_id", "—"))
+            name = str(f.get("name") or f.get("title") or "—")
+            reason = str(f.get("reason") or "—")
+            rec = str(f.get("recommendation") or "—")
+            sev = str(f.get("severity") or "Info").capitalize()
+            vendor = str(f.get("vendor") or "—").capitalize()
+            src = _csvish_join(f.get("src_addrs"))
+            dst = _csvish_join(f.get("dst_addrs"))
+            svc = _format_services(f.get("services"))
+
+            # measure everything BEFORE drawing the card
+            x0 = self.l_margin
+            w0 = self.w - self.l_margin - self.r_margin
+            inner_x = x0 + pad_x + 2.0
+            inner_w = w0 - (pad_x * 2) - 4.0
+
+            # title + meta heights
+            title_lines = self._measure_lines(name, inner_w, size=11, bold=True, line_h=line_h)
+            meta_txt = f"Rule ID: {rule_id}    Vendor: {vendor}"
+            meta_lines = self._measure_lines(meta_txt, inner_w, size=9, bold=False, line_h=line_h)
+
+            # severity chip (fixed)
+            chip_h = line_h
+
+            # content blocks (label above value)
+            h_reason = self._measure_block("Reason:", reason, label_w=26, content_w=inner_w, line_h=line_h)
+            h_rec = self._measure_block("Recommendation:", rec, label_w=26, content_w=inner_w, line_h=line_h)
+            h_sd = self._measure_block("Source → Destination:", f"{src}  →  {dst}", label_w=42, content_w=inner_w,
+                                       line_h=line_h)
+            h_svc = self._measure_block("Services:", svc, label_w=26, content_w=inner_w, line_h=line_h)
+
+            # total card height
+            need_h = (
+                    pad_y_top
+                    + (title_lines * line_h)
+                    + 1.0
+                    + (meta_lines * line_h)
+                    + 1.0
+                    + chip_h + 2.0
+                    + 2.0
+                    + h_reason + h_rec + h_sd + h_svc
+                    + pad_y_bottom
+            )
+
+            # ensure space; if not, new page first
+            self._ensure_space(need_h + 2.0)
+
+            # draw card background (exact measured height) + severity ribbon
+            y0 = self.get_y()
+            self.set_fill_color(*self.accent_grey)
+            self.rect(x0, y0, w0, need_h, style="F")
+            r, g, b = self._sev_color(sev)
+            self.set_fill_color(r, g, b)
+            self.rect(x0, y0, 4.0, need_h, style="F")
+
+            # now render content using the same widths/fonts used in measurement
+            cur_y = y0 + pad_y_top
+            self.set_xy(inner_x, cur_y)
+            self._font(11, bold=True);
+            self.set_text_color(*self.text_dark)
+            self.multi_cell(inner_w, line_h, self._safe(name));
+            cur_y = self.get_y()
+
+            self.set_xy(inner_x, cur_y + 1.0)
+            self._font(9);
+            self.set_text_color(*self.text_muted)
+            self.multi_cell(inner_w, line_h, self._safe(meta_txt));
+            cur_y = self.get_y()
+
+            # severity chip
+            self.set_xy(inner_x, cur_y + 1.0)
+            chip_txt = f" {sev} "
+            cw = self.get_string_width(chip_txt) + 4.0
+            self.set_fill_color(r, g, b);
+            self.set_text_color(255, 255, 255)
+            self._font(9, bold=True)
+            self.cell(cw, chip_h, self._safe(chip_txt), fill=True, new_x="LMARGIN", new_y="NEXT")
+            cur_y = self.get_y() + 2.0
+
+            # block renderer (label above value)
+            def block(label, value):
+                nonlocal cur_y
+                self.set_xy(inner_x, cur_y)
+                self._font(9, bold=True);
+                self.set_text_color(*self.text_muted)
+                self.multi_cell(inner_w, line_h, self._safe(label))
+                self.set_xy(inner_x, self.get_y())
+                self._font(10);
+                self.set_text_color(*self.text_dark)
+                self.multi_cell(inner_w, line_h, self._safe(value))
+                cur_y = self.get_y() + 2.0
+
+            block("Reason:", reason)
+            block("Recommendation:", rec)
+            block("Source → Destination:", f"{src}  →  {dst}")
+            block("Services:", svc)
+
+            # move cursor to after the card
+            self.set_y(y0 + need_h + 4.0)
+
+    # glue
+    def build(self, findings: list):
+        # severity order
+        order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+
+        def sev_key(f):
+            s = str(f.get("severity", "Low")).capitalize()
+            return order.get(s, 3)
+
+        # sort first
+        sorted_findings = sorted(findings or [], key=sev_key)
+
+        # counts for cover
+        counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
+        for f in sorted_findings:
+            s = str(f.get("severity", "Low")).capitalize()
+            counts[s] = counts.get(s, 0) + 1
+
+        self.add_cover(counts)
+        self.add_finding_cards(sorted_findings)
 
 
 class ExportManager:
-    """Handles exporting findings data to various formats."""
+    """CLI-facing manager (PDF only; CSV/XLSX intentionally disabled)."""
 
     def __init__(self):
         self.downloads_folder = os.path.join(os.path.expanduser("~"), "Downloads")
 
-    def get_timestamp(self):
-        """Generate timestamp for unique filenames."""
+    def get_timestamp(self) -> str:
         return datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # CSV
-    def _flatten_finding_for_csv(self, finding):
-        """Convert new schema finding to flat CSV row (kept for reference)."""
-        # ?????????????????
-        services = finding.get('services', [])
-        service_str = []
-        for service in services:
-            protocol = service.get('protocol', '')
-            ports = service.get('ports', [])
-            port_ranges = []
-            for port in ports:
-                port_from = port.get('from')
-                port_to = port.get('to')
-                if port_from == port_to:
-                    port_ranges.append(str(port_from))
-                else:
-                    port_ranges.append(f"{port_from}-{port_to}")
-            if port_ranges:
-                service_str.append(f"{protocol}/{','.join(port_ranges)}")
-            else:
-                service_str.append(protocol)
-
-        vendor = finding.get('vendor')
-        name = finding.get('name')
-        comments = finding.get('comments')
-        evidence = finding.get('evidence', {})
-
-        return {
-            "Rule ID": finding.get('rule_id', ''),
-            "Check ID": finding.get('check_id', ''),
-            "Title": finding.get('title', ''),
-            "Severity": (finding.get('severity', '') or '').capitalize(),
-            "Reason": finding.get('reason', ''),
-            "Recommendation": finding.get('recommendation', ''),
-            "Source Addresses": ', '.join(finding.get('src_addrs', []) or []),
-            "Destination Addresses": ', '.join(finding.get('dst_addrs', []) or []),
-            "Services": ', '.join(service_str),
-            "Vendor": vendor.capitalize() if vendor else '',
-            "Rule Name": name if name is not None else '',
-            "Comments": comments if comments is not None else '',
-            "Policy Name": evidence.get('policy_name', '') if evidence else '',
-            "Hit Count": evidence.get('hit_count', '') if evidence else '',
-            "Labels": ', '.join(finding.get('labels', []) or []),
-        }
-
-    def export_to_csv(self, data, filename=None, show_dialog=True):
-        """
-        Export data to CSV format.
-        """
-        # We already have JSON findings; CSV flattens structure and GUI dialogs break automation.
-        # CSV parser should be a seperated file to avoid noise
+    # Disabled (intentionally)
+    def export_to_csv(self, *_args, **_kwargs):
         raise NotImplementedError("CSV export disabled for CLI pipeline (use JSON findings + PDF).")
 
-        # all uncommented below is not needed
-        # try:
-        #     if show_dialog:
-        #         filepath = filedialog.asksaveasfilename(
-        #             defaultextension=".csv",
-        #             filetypes=[("CSV files", "*.csv")],
-        #             initialdir=self.downloads_folder
-        #         )
-        #         if not filepath:
-        #             return None
-        #     else:
-        #         if filename is None:
-        #             filename = f"FireFind_Results_{self.get_timestamp()}.csv"
-        #         filepath = os.path.join(self.downloads_folder, filename)
-        #
-        #     with open(filepath, "w", newline="", encoding="utf-8") as f:
-        #         if data:
-        #             csv_data = [self._flatten_finding_for_csv(item) for item in data]
-        #             headers = ["Rule ID", "Check ID", "Title", "Severity", "Reason", "Recommendation",
-        #                        "Source Addresses", "Destination Addresses", "Services", "Vendor",
-        #                        "Rule Name", "Comments", "Policy Name", "Hit Count", "Labels"]
-        #             writer = csv.DictWriter(f, fieldnames=headers)
-        #             writer.writeheader()
-        #             writer.writerows(csv_data)
-        #         else:
-        #             writer = csv.writer(f)
-        #             writer.writerow(headers)
-        #
-        #     messagebox.showinfo("Export Complete", f"CSV exported successfully to:\n{filepath}")
-        #     return filepath
-        # except Exception as e:
-        #     messagebox.showerror("Export Error", f"Failed to export CSV:\n{str(e)}")
-        #     return None
-
-    # Excel disabled not needed heavy deps, unrelated at this stage of the pipeline
-    def export_to_excel(self, data, filename=None, show_dialog=True):
-        """
-        Export data to Excel format.
-        """
+    def export_to_excel(self, *_args, **_kwargs):
         raise NotImplementedError("Excel export disabled for CLI pipeline (use JSON findings + PDF).")
 
-        # no need for code below
-        # try:
-        #     if show_dialog:
-        #         filepath = filedialog.asksaveasfilename(
-        #             defaultextension=".xlsx",
-        #             filetypes=[("Excel files", "*.xlsx")],
-        #             initialdir=self.downloads_folder
-        #         )
-        #         if not filepath:
-        #             return None
-        #     else:
-        #         if filename is None:
-        #             filename = f"FireFind_Results_{self.get_timestamp()}.xlsx"
-        #         filepath = os.path.join(self.downloads_folder, filename)
-        #
-        #     if data:
-        #         excel_data = [self._flatten_finding_for_csv(item) for item in data]
-        #         df = pd.DataFrame(excel_data)
-        #     else:
-        #         df = pd.DataFrame(columns=[...])
-        #
-        #     with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-        #         df.to_excel(writer, sheet_name='FireFind Results', index=False)
-        #         # formatting...
-        #
-        #     messagebox.showinfo("Export Complete", f"Excel file exported successfully to:\n{filepath}")
-        #     return filepath
-        # except Exception as e:
-        #     messagebox.showerror("Export Error", f"Failed to export Excel:\n{str(e)}")
-        #     return None
-
-    # PDF modified
-    def export_to_pdf(self, data, filename=None, show_dialog=True,
-                      *, logo_path=None, ttf_path=None):
-        """
-        Export data to PDF format with professional formatting.
-
-        whats changed frorm original code:
-        - No GUI popups; we always write directly to a file.
-        - Unicode-safe: if ttf_path is provided, use it; otherwise ASCII-sanitize text.
-        - Signature kept compatible (show_dialog exists but is ignored).
-        """
-        # ignore GUI flow; select a path directly
+    def export_to_pdf(self, data: list, filename: str | None = None, show_dialog: bool = False,
+                      *, logo_path: str | None = None, ttf_path: str | None = None) -> str:
+        """Generate the stakeholder-friendly PDF."""
         if filename is None:
             filename = f"FireFind_Report_{self.get_timestamp()}.pdf"
             filepath = os.path.join(self.downloads_folder, filename)
         else:
             filepath = filename
-
         os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
 
-        # Create PDF
         pdf = FireFindPDF(ttf_path=ttf_path, logo_path=logo_path)
-        pdf.add_page()
-
-        # Add findings
-        if data:
-            pdf.add_findings_table(data)
-        else:
-            pdf._set_font_regular(12)
-            pdf.cell(0, 10, pdf._safe('No findings to report.'), new_x="LMARGIN", new_y="NEXT")
-
-        # Output PDF
+        data = data or []
+        pdf.build(data)
         pdf.output(filepath)
         return filepath
 
 
-class FireFindPDF(FPDF):
-    """Custom PDF class for FireFind reports."""
+# CLI runner
+def _load_input(path: str) -> list:
+    if not os.path.exists(path):
+        raise SystemExit(f"[ERROR] File not found: {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        if path.lower().endswith(".jsonl"):
+            return [json.loads(line) for line in f if line.strip()]
+        return json.load(f)
 
-    def __init__(self, ttf_path=None, logo_path=None):
-        super().__init__()
-        self.report_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.logo_path = logo_path  # CHANGED: no hardcoded file; pass path if you have a logo
-
-        #  Unicode-safe: try to register a TTF; fallback to core fonts + ASCII sanitizer
-        self.using_unicode = False
-        if ttf_path and os.path.exists(ttf_path):
-            try:
-                self.add_font("UNI", "", ttf_path, uni=True)
-                self.add_font("UNIB", "", ttf_path, uni=True)
-                self.using_unicode = True
-            except Exception:
-                self.using_unicode = False
-
-    # tiny helpers to pick fonts safely
-    def _set_font_regular(self, size):
-        if self.using_unicode:
-            self.set_font('UNI', '', size)
-        else:
-            self.set_font('Helvetica', '', size)
-
-    def _set_font_bold(self, size):
-        if self.using_unicode:
-            self.set_font('UNIB', '', size)
-        else:
-            self.set_font('Helvetica', 'B', size)
-
-    def _safe(self, text):
-        return text if self.using_unicode else _ascii_sanitize(text)
-
-    def header(self):
-        """Add header to each page."""
-        # (Old behavior kept, but logo now optional via param)
-        if self.logo_path and os.path.exists(self.logo_path):
-            self.image(self.logo_path, x=10, y=8, w=10, h=10)
-
-        self._set_font_bold(20)
-        self.cell(0, 10, self._safe('FireFind Security Report'), new_x="LMARGIN", new_y="NEXT", align='C')
-
-        self._set_font_regular(12)
-        self.cell(0, 10, self._safe(f'Generated on: {self.report_datetime}'),
-                  new_x="LMARGIN", new_y="NEXT", align='C')
-        self.ln(10)
-
-    def footer(self):
-        """Add footer to each page."""
-        self.set_y(-15)
-        self._set_font_regular(8)
-        self.cell(0, 10, self._safe(f'Page {self.page_no()}'), align='C')
-
-    def _safe_ascii(self, s: str) -> str:
-        """Make text safe for the default core font (replace problematic unicode)."""
-        if s is None:
-            return ""
-        s = str(s)
-        return (s.replace("…", "...")
-                .replace("–", "-").replace("—", "-")
-                .replace("’", "'").replace("‘", "'")
-                .replace("“", '"').replace("”", '"'))
-
-    def _prepare_for_wrap(self, s: str) -> str:
-        """Sanitize text and add break opportunities after commas/semicolons."""
-        txt = self._safe_ascii(s)
-        # ensure ",X" -> ", X" and ";X" -> "; X" so FPDF can wrap after punctuation
-        return re.sub(r'([,;])(\S)', r'\1 \2', txt)
-
-    def _service_to_str(self, s: dict) -> str:
-        proto = s.get('protocol', '')
-        ports = s.get('ports', []) or []
-        if proto == 'any' or not ports:
-            return proto or 'any'
-        parts = []
-        for rng in ports:
-            lo = rng.get('from')
-            hi = rng.get('to')
-            if lo == hi:
-                parts.append(f"{proto}/{lo}")
-            else:
-                parts.append(f"{proto}/{lo}-{hi}")
-        return ','.join(parts)
-
-
-    def add_findings_table(self, data):
-        """Add findings data as a formatted table with robust wrapping/alignment."""
-        self.set_font(self._base_font if hasattr(self, "_base_font") else "Helvetica", 'B', 12)
-        self.cell(0, 10, 'Security Findings Summary', new_x="LMARGIN", new_y="NEXT", align='L')
-        self.ln(5)
-
-        # Summary counts
-        severity_counts = {}
-        for finding in data:
-            severity = finding.get('severity', 'Unknown').title()
-            severity_counts[severity] = severity_counts.get(severity, 0) + 1
-
-        self.set_font(self._base_font if hasattr(self, "_base_font") else "Helvetica", '', 10)
-        self.cell(0, 6, f'Total Findings: {len(data)}', new_x="LMARGIN", new_y="NEXT", align='L')
-        for severity, count in sorted(severity_counts.items()):
-            self.cell(0, 6, f'{severity}: {count}', new_x="LMARGIN", new_y="NEXT", align='L')
-        self.ln(5)
-
-        # Table headers
-        self.set_font(self._base_font if hasattr(self, "_base_font") else "Helvetica", 'B', 6)
-        col_widths = [15, 40, 35, 35, 25, 15, 15]  # adjust widths to your taste
-        headers = ['Rule ID', 'Title', 'Source', 'Destination', 'Service', 'Severity', 'Vendor']
-        for i, header in enumerate(headers):
-            self.cell(col_widths[i], 8, header, border=1, align='C')
-        self.ln()
-
-        # We will manage page breaks manually during the table
-        SAFE_BOTTOM = 20  # mm; must be >= footer height (footer uses set_y(-15))
-        self.set_auto_page_break(auto=False, margin=SAFE_BOTTOM)
-
-        # Table rows
-        self.set_font(self._base_font if hasattr(self, "_base_font") else "Helvetica", '', 7)
-        self.set_auto_page_break(auto=False, margin=self.b_margin)
-        line_h = 6  # line height when writing wrapped lines
-
-        for finding in data:
-            # 1) build text for each column (keep your current column order)
-            row_data = [
-                str(finding.get('rule_id', '')),
-                str(finding.get('title', '') or ''),
-                ', '.join(finding.get('src_addrs', [])),
-                ', '.join(finding.get('dst_addrs', [])),
-                ', '.join(self._service_to_str(s) for s in finding.get('services', [])),
-                str(finding.get('severity', '')).capitalize(),
-                (str(finding.get('vendor')) or '').capitalize(),
-            ]
-
-            # 2) measure wrapped lines for each column (no drawing yet)
-            line_h = 7  # line height; smaller -> more lines fit
-            measured = []
-            for i, text in enumerate(row_data):
-                txt = self._prepare_for_wrap(text)  # make commas breakable, sanitize
-                lines = self.multi_cell(col_widths[i],  # << use your existing col_widths
-                                        line_h,
-                                        txt,
-                                        border=0,
-                                        align='L',
-                                        split_only=True)  # << important: measure only
-                measured.append(lines or [""])
-
-            # 3) pick row height = tallest column (in lines) * line height
-            max_lines = max(len(ls) for ls in measured)
-            row_h = max_lines * line_h
-
-            # 4) page-break preflight: if row won’t fit, new page + redraw headers
-            SAFE_BOTTOM = 20  # mm, bigger than your footer
-            if self.get_y() + row_h > self.h - SAFE_BOTTOM:
-                self.add_page()
-                self.set_font("Helvetica", 'B', 7)
-                for i, header in enumerate(headers):
-                    self.cell(col_widths[i], 8, header, border=1, align='C')
-                self.ln()
-                self.set_font("Helvetica", '', 7)
-
-            # 5) draw row: one rectangle per cell with same height, then print lines inside
-            y_top = self.get_y()
-            x_left = self.l_margin
-            for i, lines in enumerate(measured):
-                w = col_widths[i]
-                # left edge of this cell = left margin + sum of previous widths
-                x_cell = x_left + sum(col_widths[:i])
-                y_cell = y_top
-
-                # border box for the entire cell (expands vertically)
-                self.rect(x_cell, y_cell, w, row_h)
-
-                # If this is the Severity column, set text color based on severity
-                # headers = ['Rule ID', 'Title', 'Source', 'Destination', 'Service', 'Severity', 'Vendor']
-                if i == 5:  # Severity column index
-                    sev_val = str(finding.get('severity', '')).strip().lower()
-                    if sev_val == "high":
-                        self.set_text_color(220, 38, 38)      # red
-                    elif sev_val == "medium":
-                        self.set_text_color(245, 158, 66)     # orange
-                    elif sev_val == "low":
-                        self.set_text_color(163, 184, 59)     # green
-                    else:
-                        self.set_text_color(0, 0, 0)          # default black
-                else:
-                    self.set_text_color(0, 0, 0)              # black for other columns
-
-                # write each wrapped line inside with small padding
-                for j, ln in enumerate(lines):
-                    self.set_xy(x_cell + 2, y_cell + j * line_h + 1)
-                    self.multi_cell(w - 4, line_h, self._safe_ascii(ln), border=0, align='L')
-
-                # restore black text color after the severity cell (or after each cell)
-                self.set_text_color(0, 0, 0)
-
-            # 6) move cursor to the next row (same left, y + row height)
-            self.set_xy(x_left, y_top + row_h)
-
-        # restore normal page-break behavior after the table
-       # self.set_auto_page_break(auto=True, margin=SAFE_BOTTOM)
-
-
-# Demo
-def demo_export():
-    """Quick demo for sanity (uses new-schema-ish rows)."""
-    sample_data = [
-        {
-            "rule_id": "419",
-            "vendor": "fortinet",
-            "enabled": True,
-            "action": "allow",
-            "src_addrs": ["CLIENT_CloudPC"],
-            "dst_addrs": ["OUT-PRD-VL0"],
-            "services": [{"protocol": "any", "ports": []}],
-            "raw": {"vendor": "fortinet", "rule_id": "419", "src": "CLIENT_CloudPC", "dst": "OUT-PRD-VL0",
-                    "service": "ALL", "action": "Accept", "reason": "", "severity": "info"},
-            "name": None,
-            "comments": None,
-            "title": "Rule 419",
-            "severity": "low",
-        }
-    ]
-    exporter = ExportManager()
-    print("Testing export to PDF (no GUI)...")
-    out = exporter.export_to_pdf(sample_data, filename=os.path.join("results", "report.pdf"),
-                                 logo_path=None, ttf_path=None)
-    print("PDF ->", os.path.abspath(out))
-
-
-#  CLI runner so we can do: python -m firefind.export_manager <inputfile> [--out results/report.pdf]
 if __name__ == "__main__":
-    import sys, json, argparse
-
-    parser = argparse.ArgumentParser(description="Generate FireFind PDF report from JSON or JSONL findings file.")
-    parser.add_argument("input", help="Path to input .json or .jsonl file (from the risk engine output).")
-    parser.add_argument("--out", help="Output PDF path (default: results/report.pdf)", default="results/report.pdf")
-    parser.add_argument("--ttf", help="Optional Unicode TTF font (e.g., assets/fonts/DejaVuSans.ttf)", default=None)
+    parser = argparse.ArgumentParser(description="Generate FireFind stakeholder PDF from JSON/JSONL findings.")
+    parser.add_argument("input", help="Path to findings .json or .jsonl")
+    parser.add_argument("--out", help="Output PDF path (default: results/firefind_report.pdf)",
+                        default="results/firefind_report.pdf")
+    parser.add_argument("--ttf", help="Optional Unicode TTF (e.g., assets/fonts/DejaVuSans.ttf)", default=None)
+    parser.add_argument("--logo", help="Optional logo image path (PNG/JPG)", default=None)
     args = parser.parse_args()
 
-    # Load the input file (handles JSON or JSONL)
-    if not os.path.exists(args.input):
-        sys.exit(f"[ERROR] File not found: {args.input}")
-
-    with open(args.input, "r", encoding="utf-8") as f:
-        if args.input.lower().endswith(".jsonl"):
-            data = [json.loads(line) for line in f if line.strip()]
-        else:
-            data = json.load(f)
-
+    findings = _load_input(args.input)
     exporter = ExportManager()
-    pdf_path = exporter.export_to_pdf(data, filename=args.out, ttf_path=args.ttf)
-
-    print(f"[OK] PDF report created at: {os.path.abspath(pdf_path)}")
-
+    out = exporter.export_to_pdf(findings, filename=args.out, ttf_path=args.ttf, logo_path=args.logo)
+    print(f"[OK] PDF report created at: {os.path.abspath(out)}")

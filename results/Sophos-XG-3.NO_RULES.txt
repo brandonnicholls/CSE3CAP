@@ -1,0 +1,5 @@
+0 rules. Try:
+  --list-sheets
+  --auto
+  --sheet <name> --skip-rows N --header-scan M
+  --dump-sheet <name>
