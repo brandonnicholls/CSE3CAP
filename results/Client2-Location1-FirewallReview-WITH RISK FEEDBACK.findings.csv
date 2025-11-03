@@ -1,7 +1,0 @@
-vendor,rule_id,src,dst,service,action,reason,severity
-sophos,4,NW-Client2-Public-IPs VocusPublic IP,all,ALL,accept,Allow outgoing traffic from Client2 Public IPs to Internet,
-sophos,2,GRP_NET_PrivateIPs,all,ALL,accept,Allow Client2 Networks to Browse internet with Vocus IP Nat.,
-sophos,3,all,NW-Client2-Public-IPs,ALL,accept,Allow Static route from internet to Client2 Public IPs.,
-sophos,5,NET_VisitorSystem Client2-Guest-Wifi address NET_WLANDev NET_wlan_staff,all,HTTP HTTPS,accept,Allow internet access for Visitor System and guest,
-sophos,6,Client2 Subclient address NET_WLANDev NET_wlan_staff,GRP_NET_PrivateIPs,ALL,accept,,
-sophos,7,GRP_NET_PrivateIPs,Client2 Subclient address NET_wlan_staff,ALL,accept,(Copy of Subclient to Internal) (Reverse of Subclient to Internal),

@@ -1,9 +1,0 @@
-vendor,rule_id,src,dst,service,action,reason,severity
-fortinet,8658,"EXT-PRD-VL0
-Po1.396",Gig0/0,SSH,Accept,,
-fortinet,8740,EXT-PRD-VL0,Gig0/0,"HTTPS
-HTTP",Accept,"CHG0064317, CHG0064452",
-fortinet,11270,EXT-PRD-VL0,any,RDP,Accept,CHG0045499 : Remote Desktop access to CLIENT Servers;access-list al_inside extended permit tcp object-group CLIENT_Nets object-group CLIENT_RDP_Servers eq 3389 log disable,
-fortinet,12008,EXT-PRD-VL0,any,DM_INLINE_SERVICE_234,Accept,CHG0058211;access-list al_inside extended permit object-group DM_INLINE_SERVICE_234 object-group CLIENT_Nets object-group DM_INLINE_NETWORK_136,
-fortinet,8120,EXT-PRD-VL0,Gig0/0,"TCP-587
-SMTP",Accept,,

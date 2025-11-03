@@ -1,8 +1,0 @@
-vendor,rule_id,src,dst,service,action,reason,severity
-sophos,3,NW-Client2-DC-LAN NW-Client2-Monitoring-NW Client2_Camera Client2_Large_Monitoring,NW-NS-ICT-LAN NW-NS-LAN,ALL,accept,,
-sophos,5,NW-NS-ICT-LAN NW-NS-LAN,NW-Client2-DC-LAN NW-Client2-Monitoring-NW Client2_Camera Client2_Large_Monitoring,ALL,accept,(Copy of Client2_DC_to_Location1) (Reverse of Client2_DC_to_Location1),
-sophos,4,NW-NS-LAN,WAN_200.200.179.198,ALL,accept,ne.client2.com.au,
-sophos,1,NW-NS-ICT-LAN NW-NS-LAN,all,ALL,accept,,
-sophos,2,NW-NS-GUEST,all,ALL,accept,,
-sophos,6,Location1_ICT_10.111.9.100,Client2_Mon_172.16.1.240,ALL,accept,,
-sophos,8,all,all,ALL,accept,,
