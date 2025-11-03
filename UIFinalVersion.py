@@ -971,6 +971,7 @@ class UI:
                     return
             self.high_risk_ports.append({"port": int(answer), "enabled": tk.BooleanVar(value=True)})
             refresh_ports_ui()
+            add_port()
 
         def remove_port(index):
             if 0 <= index < len(self.high_risk_ports):
